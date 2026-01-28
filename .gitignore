@@ -1,0 +1,67 @@
+# ----------------------
+# Xcode
+# ----------------------
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+# ----------------------
+# Swift Package Manager
+# ----------------------
+.build/
+Packages/
+.swiftpm/
+# ----------------------
+# CocoaPods
+# ----------------------
+Pods/
+Podfile.lock
+# ----------------------
+# Carthage
+# ----------------------
+Carthage/Build/
+# ----------------------
+# Fastlane
+# ----------------------
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+# ----------------------
+# Environment / Secrets
+# ----------------------
+.env
+*.env
+*.key
+*.p12
+*.mobileprovision
+*.cer
+# 구독 결제 관련 민감 정보
+AppStoreConnectAPIKey.p8
+SubscriptionKeys/
+Secrets/
+credentials.json
+stripe_key.txt
+revenuecat_keys.json
+*.jwt
+# ----------------------
+# 광고 / Ad ID 관련
+# ----------------------
+GoogleService-Info.plist
+AdsKeys/
+admob_key.json
+# ----------------------
+# Temporary / IDE
+# ----------------------
+*.swp
+*.tmp
+*.lock
+*.log
+*.idea/
+*.vscode/
+.DS_Store

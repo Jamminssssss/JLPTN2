@@ -1,0 +1,3 @@
+Bài kiểm tra đánh giá năng lực tiếng Nhật JLPT độ khó thực tế của N2 được tạo ra để có thể giải quyết vấn đề một cách đơn giản và nhanh chóng.
+Bạn có thể chia thành các loại kiến thức ngôn ngữ, đọc hiểu và nghe hiểu để giải quyết vấn đề.
+Trường hợp chạm vào đáp án sẽ được đánh dấu bằng màu xanh lá cây, trường hợp chạm vào đáp án sai sẽ được đánh dấu bằng màu đỏ và màu xanh lá cây đồng thời.

@@ -1,0 +1,191 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "9EDE9583",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "6753156787",
+      "localizations" : [
+        {
+          "description" : "광고를 제거합니다.",
+          "displayName" : "광고 제거",
+          "locale" : "ko"
+        }
+      ],
+      "productID" : "org.reactjs.native.example.N2TestApp.adremoval",
+      "referenceName" : "Adremoval",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6742810691",
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_developerTeamID" : "DUBPMF36TD",
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 791274481.66805601,
+    "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21814085",
+      "localizations" : [
+
+      ],
+      "name" : "Jlpt N2 premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "2.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6754365178",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Includes writing, scripts, and pronunciation analysis.",
+              "displayName" : "1-Month Subscription",
+              "locale" : "en_GB"
+            },
+            {
+              "description" : "含單字書寫、聽力腳本與發音分析功能",
+              "displayName" : "1個月訂閱",
+              "locale" : "zh_Hant"
+            },
+            {
+              "description" : "Gồm viết từ, nghe script và phân tích phát âm.",
+              "displayName" : "Gói đăng ký 1 tháng",
+              "locale" : "vi"
+            },
+            {
+              "description" : "มีเขียนคำ สคริปต์ฟัง และวิเคราะห์การออกเสียง",
+              "displayName" : "สมัครสมาชิก 1 เดือน",
+              "locale" : "th"
+            },
+            {
+              "description" : "含写词、听力脚本和发音分析功能",
+              "displayName" : "1个月订阅",
+              "locale" : "zh_Hans"
+            },
+            {
+              "description" : "書き取り・聴解スクリプト・発音分析機能付き",
+              "displayName" : "1か月購読",
+              "locale" : "ja"
+            },
+            {
+              "description" : "Includes writing, scripts, and pronunciation analysis.",
+              "displayName" : "1-Month Subscription",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "단어쓰기, 청해 스크립트, 발음 분석 제공",
+              "displayName" : "1개월 구독",
+              "locale" : "ko"
+            }
+          ],
+          "productID" : "org.reactjs.native.example.N2TestApp.sub.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "monthlySubscription",
+          "subscriptionGroupID" : "21814085",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6754365262",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "มีเขียนคำ สคริปต์ฟัง และวิเคราะห์การออกเสียง",
+              "displayName" : "สมัครสมาชิก 1 ปี",
+              "locale" : "th"
+            },
+            {
+              "description" : "含写词、听力脚本和发音分析功能",
+              "displayName" : "1年订阅",
+              "locale" : "zh_Hans"
+            },
+            {
+              "description" : "Includes writing, scripts, and pronunciation analysis.",
+              "displayName" : "1-Year Subscription",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "含單字書寫、聽力腳本與發音分析功能",
+              "displayName" : "1年訂閱",
+              "locale" : "zh_Hant"
+            },
+            {
+              "description" : "書き取り・聴解スクリプト・発音分析機能付き",
+              "displayName" : "1年購読",
+              "locale" : "ja"
+            },
+            {
+              "description" : "Includes writing, scripts, and pronunciation analysis.",
+              "displayName" : "1-Year Subscription",
+              "locale" : "en_GB"
+            },
+            {
+              "description" : "단어쓰기, 청해 스크립트, 발음 분석 제공",
+              "displayName" : "1년 구독",
+              "locale" : "ko"
+            },
+            {
+              "description" : "Gồm viết từ, nghe script và phân tích phát âm.",
+              "displayName" : "Gói đăng ký 1 năm",
+              "locale" : "vi"
+            }
+          ],
+          "productID" : "org.reactjs.native.example.N2TestApp.sub.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "yearlySubscription",
+          "subscriptionGroupID" : "21814085",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

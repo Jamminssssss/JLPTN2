@@ -1,0 +1,81 @@
+require 'dotenv'
+Dotenv.load('../../.env')
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Push a new build directly to App Store"
+  lane :release do
+    match(
+      type: "appstore",
+      app_identifier: "org.reactjs.native.example.N2TestApp"
+    )
+    increment_build_number(xcodeproj: "N2TestApp.xcodeproj")
+    build_app(
+      project: "N2TestApp.xcodeproj", # xcodeproj 사용
+      scheme: "N2TestApp",
+      export_method: "app-store"
+    )
+    upload_to_app_store(
+      app_identifier: "org.reactjs.native.example.N2TestApp",
+      skip_metadata: false,
+      skip_screenshots: true,
+      submit_for_review: true,
+      automatic_release: true,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      release_notes: {
+       'default' => '앱 기능 개선 및 버그 수정',
+        'ko' => '앱 기능 개선 및 버그 수정',
+        'en-GB' => 'App improvements and bug fixes',
+        'en-US' => 'App improvements and bug fixes',
+        'vi' => 'Cải thiện tính năng và sửa lỗi',
+        'ja' => 'アプリの機能改善とバグ修正',
+        'zh-Hans' => '应用功能改进和错误修复',
+        'zh-Hant' => '應用功能改進和錯誤修復',
+        'th' => 'ปรับปรุงฟีเจอร์และแก้ไขข้อบกพร่อง'
+      },
+      promotional_text: {
+       'default' => 'N2 실제 문제를 풀어보자',
+        'ko' => 'N2 실제 문제를 풀어보자',
+        'en-GB' => 'Practice with real N2 exam questions',
+        'en-US' => 'Practice with real N2 exam questions',
+        'vi' => 'Luyện tập với các câu hỏi thực tế của kỳ thi N2',
+        'ja' => 'N2の実際の問題を解いてみよう',
+        'zh-Hans' => '练习N2真题',
+        'zh-Hant' => '練習N2真題',
+        'th' => 'ฝึกฝนกับข้อสอบ N2 จริง'
+      },
+      api_key: app_store_connect_api_key(
+        key_id: ENV["APP_STORE_KEY_ID"],  # .env 파일에서 가져오기
+        issuer_id: ENV["APP_STORE_ISSUER_ID"],  # .env 파일에서 가져오기
+        is_key_content_base64: true,
+        key_content: ENV["APP_STORE_KEY_BASE64"]  # .env 파일에서 가져오기
+      )
+    )
+  end
+
+  desc "Push a new beta build to TestFlight"
+  lane :beta do
+    match(
+      type: "appstore",
+      app_identifier: "org.reactjs.native.example.N2TestApp"
+    )
+    increment_build_number(xcodeproj: "N2TestApp.xcodeproj")
+    build_app(
+      project: "N2TestApp.xcodeproj", # xcodeproj 사용
+      scheme: "N2TestApp",
+      export_method: "app-store"
+    )
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true,
+      app_identifier: "org.reactjs.native.example.N2TestApp",
+      api_key: app_store_connect_api_key(
+        key_id: ENV["APP_STORE_KEY_ID"],  # .env 파일에서 가져오기
+        issuer_id: ENV["APP_STORE_ISSUER_ID"],  # .env 파일에서 가져오기
+        is_key_content_base64: true,
+        key_content: ENV["APP_STORE_KEY_BASE64"]  # .env 파일에서 가져오기
+      )
+    )
+  end
+end

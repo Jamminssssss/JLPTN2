@@ -1,0 +1,3 @@
+It is designed to solve real problems in the Japanese language proficiency test JLPT difficulty level N2 simply and quickly.
+You can solve problems by dividing them into language knowledge, reading, and asking categories.
+If the correct answer is touched, it is displayed in green, and if the wrong answer is touched, it is displayed in red and green at the same time.
