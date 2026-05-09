@@ -297,7 +297,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -313,6 +313,11 @@
 		86632ED72E5EC01E00A13457 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				AD_APP_ID = "ca-app-pub-9940677842340433~6430463399";
+				AD_APP_OPEN_ID = "ca-app-pub-9940677842340433/9754963879";
+				AD_BANNER_BOTTOM_ID = "ca-app-pub-9940677842340433/9191825277";
+				AD_BANNER_TOP_ID = "ca-app-pub-9940677842340433/8442954037";
+				AD_INTERSTITIAL_ID = "ca-app-pub-9940677842340433/6830489468";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -333,7 +338,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

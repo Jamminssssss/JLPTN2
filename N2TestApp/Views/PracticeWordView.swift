@@ -14,375 +14,479 @@ struct PracticeWordView: View {
     @State private var fontScale: CGFloat = 1.0
     @State private var showPurchaseView = false
     @StateObject private var storeManager = StoreKitManager.shared
-    
-    private var isWritingEntitled: Bool { storeManager.isSubscribed || wordController.currentWordIndex == 0 }
-    
-    // 현재 언어 코드 가져오기
+
+    @State private var strokeAnimationDone = false
+    @State private var penColor: Color = Color(UIColor.label)   // 다크=흰, 라이트=검정 기본값
+    @State private var showColorPicker = false
+
+    /// 인덱스 0·1·2(= 1~3번째 단어)는 무료, 4번째(인덱스 3)부터 구독 필요
+    private var isWritingEntitled: Bool { storeManager.isSubscribed || wordController.currentWordIndex < 3 }
+
     private var currentLanguageCode: String {
-        return Locale.current.language.languageCode?.identifier ?? "en"
+        Locale.current.language.languageCode?.identifier ?? "en"
     }
-    
-    // 로컬라이징된 뜻 가져오기 (일본어는 뜻을 표시하지 않음)
+
+    // 일본어 사용자는 뜻을 표시하지 않음
     private func getLocalizedMeaning() -> String? {
-        // 일본어 사용자는 뜻을 표시하지 않음
-        if currentLanguageCode == "ja" {
-            return nil
-        }
-        
-        // 각 언어별로 뜻 반환
+        if currentLanguageCode == "ja" { return nil }
         switch currentLanguageCode {
-        case "ko":
-            return currentWord.meanings["ko"]
-        case "zh", "zh-Hans", "zh-Hant":
-            return currentWord.meanings["zh-Hans"]
-        default:
-            // 그 외 언어는 영어로 기본 표시
-            return currentWord.meanings["en"]
+        case "ko":                           return currentWord.meanings["ko"]
+        case "zh", "zh-Hans", "zh-Hant":    return currentWord.meanings["zh-Hans"]
+        case "vi":                           return currentWord.meanings["vi"]
+        case "th":                           return currentWord.meanings["th"]
+        case "fr":                           return currentWord.meanings["fr"]
+        default:                             return currentWord.meanings["en"]
         }
     }
-    
+
     var currentWord: Word {
         words[wordController.currentWordIndex]
     }
-    
+
     private func speakText(_ text: String) {
-        if isSpeaking {
-            speechSynthesizer.stopSpeaking(at: .immediate)
-        }
-        
+        if isSpeaking { speechSynthesizer.stopSpeaking(at: .immediate) }
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "ja-JP")
         utterance.rate = 0.5
         utterance.pitchMultiplier = 1.0
         utterance.volume = 1.0
-        
         isSpeaking = true
         speechSynthesizer.speak(utterance)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            isSpeaking = false
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { isSpeaking = false }
     }
-    
-    
+
+    // 단어 변경 시 상태 초기화
+    private func resetForNewWord() {
+        canvasView.drawing = PKDrawing()
+        strokeAnimationDone = false
+    }
+
+    // MARK: - Body
+
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 AdaptiveTopBannerView()
-                
+
                 ZStack {
                     (colorScheme == .dark ? Color.black : Color.white)
                         .ignoresSafeArea()
-                    
+
                     if wordController.showCompletionScreen {
-                        VStack(spacing: 0) {
-                            let isPortrait = geometry.size.height > geometry.size.width
-                            let canvasSize: CGSize = isPortrait
-                                ? CGSize(width: geometry.size.width * 0.9, height: geometry.size.height * 0.8)
-                                : CGSize(width: geometry.size.width * 0.95, height: geometry.size.height * 0.8)
-                            
-                            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                                VStack(spacing: 10) {
-                                    CanvasView(canvasView: $canvasView, colorScheme: colorScheme, isDrawingEnabled: isWritingEntitled)
-                                        .frame(width: canvasSize.width, height: canvasSize.height)
-                                        .background(colorScheme == .dark ? Color.black : Color.white)
-                                        .cornerRadius(10)
-                                        .shadow(radius: 5)
-                                        .overlay(
-                                            BackgroundCharactersOverlay(
-                                                text: currentWord.kanji,
-                                                isPortrait: isPortrait,
-                                                canvasSize: canvasSize,
-                                                fontScale: fontScale
-                                            )
-                                            .allowsHitTesting(false)
-                                        )
-                                }
-                            }
-                            .padding(.horizontal)
-                            .frame(maxHeight: .infinity)
-                            
-                            HStack(spacing: isPortrait ? 16 : 12) {
-                                if isWritingEntitled {
-                                    Button(action: {
-                                        wordController.previousWord()
-                                        canvasView.drawing = PKDrawing()
-                                    }) {
-                                        Image(systemName: "arrow.left")
-                                            .font(.system(size: isPortrait ? 20 : 16))
-                                            .foregroundColor(.white)
-                                            .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Button(action: {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            wordController.showGuide = true
-                                        }
-                                        DispatchQueue.main.async {
-                                            speakText(currentWord.kanji)
-                                        }
-                                        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                                            withAnimation(.easeInOut(duration: 0.3)) {
-                                                wordController.showGuide = false
-                                            }
-                                        }
-                                    }) {
-                                        Image(systemName: "eye")
-                                            .font(.system(size: isPortrait ? 20 : 16))
-                                            .foregroundColor(.white)
-                                            .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Button(action: {
-                                        wordController.toggleTool()
-                                        if wordController.isEraser {
-                                            canvasView.tool = PKEraserTool(.vector)
-                                        } else {
-                                            canvasView.tool = PKInkingTool(.pen, color: .black, width: 2.0)
-                                        }
-                                    }) {
-                                        Image(systemName: wordController.isEraser ? "pencil" : "eraser")
-                                            .font(.system(size: isPortrait ? 20 : 16))
-                                            .foregroundColor(.white)
-                                            .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Button(action: {
-                                        if storeManager.isSubscribed {
-                                            if wordController.currentWordIndex < words.count - 1 {
-                                                wordController.nextWord(totalWords: words.count)
-                                                canvasView.drawing = PKDrawing()
-                                            }
-                                        } else {
-                                            showPurchaseView = true
-                                        }
-                                    }) {
-                                        if wordController.currentWordIndex < words.count - 1 {
-                                            Image(systemName: "arrow.right")
-                                                .font(.system(size: isPortrait ? 20 : 16))
-                                                .foregroundColor(.white)
-                                                .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                                .background(Color.blue)
-                                                .clipShape(Circle())
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.vertical, isPortrait ? 16 : 8)
-                            .padding(.bottom, isPortrait ? 20 : 10)
-                        }
+                        completionCanvasSection(geometry: geometry)
                     } else if wordController.showGuide {
-                        Color.black
-                            .ignoresSafeArea()
-                            .overlay(
-                                VStack(spacing: 20) {
-                                    Text(currentWord.kanji)
-                                        .font(.system(size: (horizontalSizeClass == .regular ? 160 : 120) * fontScale))
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.white)
-                                        .padding()
-                                    
-                                    // 로컬라이징된 뜻 표시 (일본어는 nil이므로 표시 안됨)
-                                    if let meaning = getLocalizedMeaning() {
-                                        Text(meaning)
-                                            .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
-                                            .foregroundColor(.gray)
-                                            .multilineTextAlignment(.center)
-                                            .padding(.horizontal)
-                                    }
-                                }
-                            )
-                            .transition(.opacity)
-                            .zIndex(2)
-                            .onAppear {
-                                Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        wordController.showGuide = false
-                                    }
-                                }
-                            }
+                        strokeGuideView(geometry: geometry)
                     } else {
-                        VStack(spacing: 0) {
-                            let isPortrait = geometry.size.height > geometry.size.width
-                            let canvasSize: CGSize = isPortrait
-                                ? CGSize(width: geometry.size.width * 0.9, height: geometry.size.height * 0.8)
-                                : CGSize(width: geometry.size.width * 0.95, height: geometry.size.height * 0.8)
-                            
-                            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                                VStack(spacing: 10) {
-                                    CanvasView(canvasView: $canvasView, colorScheme: colorScheme, isDrawingEnabled: isWritingEntitled)
-                                        .frame(width: canvasSize.width, height: canvasSize.height)
-                                        .background(colorScheme == .dark ? Color.black : Color.white)
-                                        .cornerRadius(10)
-                                        .shadow(radius: 5)
-                                        .overlay(
-                                            BackgroundCharactersOverlay(
-                                                text: currentWord.kanji,
-                                                isPortrait: isPortrait,
-                                                canvasSize: canvasSize,
-                                                fontScale: fontScale
-                                            )
-                                            .allowsHitTesting(false)
-                                        )
-                                }
-                            }
-                            .padding(.horizontal)
-                            .frame(maxHeight: .infinity)
-                            
-                            HStack(spacing: isPortrait ? 16 : 12) {
-                                if isWritingEntitled {
-                                    Button(action: {
-                                        wordController.previousWord()
-                                        canvasView.drawing = PKDrawing()
-                                    }) {
-                                        Image(systemName: "arrow.left")
-                                            .font(.system(size: isPortrait ? 20 : 16))
-                                            .foregroundColor(.white)
-                                            .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Button(action: {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            wordController.showGuide = true
-                                        }
-                                        DispatchQueue.main.async {
-                                            speakText(currentWord.kanji)
-                                        }
-                                        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                                            withAnimation(.easeInOut(duration: 0.3)) {
-                                                wordController.showGuide = false
-                                            }
-                                        }
-                                    }) {
-                                        Image(systemName: "eye")
-                                            .font(.system(size: isPortrait ? 20 : 16))
-                                            .foregroundColor(.white)
-                                            .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Button(action: {
-                                        wordController.toggleTool()
-                                        if wordController.isEraser {
-                                            canvasView.tool = PKEraserTool(.vector)
-                                        } else {
-                                            canvasView.tool = PKInkingTool(.pen, color: .black, width: 2.0)
-                                        }
-                                    }) {
-                                        Image(systemName: wordController.isEraser ? "pencil" : "eraser")
-                                            .font(.system(size: isPortrait ? 20 : 16))
-                                            .foregroundColor(.white)
-                                            .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Button(action: {
-                                        if storeManager.isSubscribed {
-                                            if wordController.currentWordIndex < words.count - 1 {
-                                                wordController.nextWord(totalWords: words.count)
-                                                canvasView.drawing = PKDrawing()
-                                            }
-                                        } else {
-                                            showPurchaseView = true
-                                        }
-                                    }) {
-                                        if wordController.currentWordIndex < words.count - 1 {
-                                            Image(systemName: "arrow.right")
-                                                .font(.system(size: isPortrait ? 20 : 16))
-                                                .foregroundColor(.white)
-                                                .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
-                                                .background(Color.blue)
-                                                .clipShape(Circle())
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.vertical, isPortrait ? 16 : 8)
-                            .padding(.bottom, isPortrait ? 20 : 10)
-                        }
-                        .zIndex(1)
+                        writingPracticeSection(geometry: geometry)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
+
                 AdaptiveBottomBannerView()
             }
         }
         .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Menu {
-                    Button(action: {
-                        wordController.resetProgress()
-                        ProgressManager.shared.clearWordProgress()
-                        wordController.currentWordIndex = 0
-                        wordController.showCompletionScreen = false
-                        wordController.showGuide = false
-                        canvasView.drawing = PKDrawing()
-                    }) {
-                        Label("처음으로", systemImage: "arrow.counterclockwise")
-                    }
-                    Button(action: {
-                        presentationMode.wrappedValue.dismiss()
-                    }) {
-                        Label("홈 화면으로 돌아가기", systemImage: "house.fill")
-                    }
-                    Menu("글자 크기") {
-                        Button(action: {
-                            fontScale = 0.8
-                        }) {
-                            Text("작게")
-                        }
-                        Button(action: {
-                            fontScale = 1.0
-                        }) {
-                            Text("보통")
-                        }
-                        Button(action: {
-                            fontScale = 1.2
-                        }) {
-                            Text("크게")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue)
-                }
-            }
-        }
-        .onAppear {
-            wordController.loadProgress()
-        }
+        .toolbar { toolbarContent }
+        .onAppear { wordController.loadProgress() }
         .onDisappear {
             speechSynthesizer.stopSpeaking(at: .immediate)
             isSpeaking = false
         }
-        .sheet(isPresented: $showPurchaseView) {
-            PurchaseView()
+        .fullScreenCover(isPresented: $showPurchaseView) { PurchaseView() }
+    }
+
+    // MARK: - 가이드 화면 (일본어: 정적 텍스트)
+
+    @ViewBuilder
+    private func strokeGuideView(geometry: GeometryProxy) -> some View {
+        let isPortrait = geometry.size.height > geometry.size.width
+
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                Spacer()
+
+                Text(currentWord.kanji)
+                    .font(.system(size: (horizontalSizeClass == .regular ? 160 : 120) * fontScale))
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding()
+
+                if let meaning = getLocalizedMeaning() {
+                    Text(meaning)
+                        .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        wordController.showGuide = false
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "pencil")
+                        Text("じゃあ、書いてみて。")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.system(size: isPortrait ? 17 : 15))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 13)
+                    .background(Color.white)
+                    .cornerRadius(24)
+                }
+                .padding(.bottom, isPortrait ? 32 : 16)
+            }
+        }
+        .transition(.opacity)
+        .zIndex(2)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                speakText(currentWord.kanji)
+            }
+        }
+    }
+
+    // MARK: - 쓰기 연습 화면
+
+    @ViewBuilder
+    private func writingPracticeSection(geometry: GeometryProxy) -> some View {
+        let isPortrait = geometry.size.height > geometry.size.width
+        let canvasSize: CGSize = isPortrait
+            ? CGSize(width: geometry.size.width * 0.9,  height: geometry.size.height * 0.72)
+            : CGSize(width: geometry.size.width * 0.95, height: geometry.size.height * 0.68)
+
+        VStack(spacing: 0) {
+            ZStack {
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    CanvasView(canvasView: $canvasView,
+                               colorScheme: colorScheme,
+                               isDrawingEnabled: isWritingEntitled,
+                               isEraser: wordController.isEraser,
+                               penColor: penColor)
+                        .frame(width: canvasSize.width, height: canvasSize.height)
+                        .cornerRadius(10)
+                        .shadow(radius: 5)
+                        .overlay(
+                            BackgroundCharactersOverlay(
+                                text: currentWord.kanji,
+                                isPortrait: isPortrait,
+                                canvasSize: canvasSize,
+                                fontScale: fontScale
+                            )
+                            .allowsHitTesting(false)
+                        )
+                }
+
+                // 잠금 오버레이
+                if !isWritingEntitled {
+                    lockOverlay(isPortrait: isPortrait)
+                }
+
+
+            }
+            .padding(.top, isPortrait ? 16 : 8)
+
+            bottomControlsBar(isPortrait: isPortrait, canvasSize: canvasSize)
+        }
+    }
+
+    // MARK: - 완료 후 캔버스 화면
+
+    @ViewBuilder
+    private func completionCanvasSection(geometry: GeometryProxy) -> some View {
+        let isPortrait = geometry.size.height > geometry.size.width
+        let canvasSize: CGSize = isPortrait
+            ? CGSize(width: geometry.size.width * 0.9,  height: geometry.size.height * 0.8)
+            : CGSize(width: geometry.size.width * 0.95, height: geometry.size.height * 0.8)
+
+        VStack(spacing: 0) {
+            ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                CanvasView(canvasView: $canvasView,
+                           colorScheme: colorScheme,
+                           isDrawingEnabled: isWritingEntitled,
+                           isEraser: wordController.isEraser,
+                           penColor: penColor)
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .cornerRadius(10)
+                    .shadow(radius: 5)
+                    .overlay(
+                        BackgroundCharactersOverlay(
+                            text: currentWord.kanji,
+                            isPortrait: isPortrait,
+                            canvasSize: canvasSize,
+                            fontScale: fontScale
+                        )
+                        .allowsHitTesting(false)
+                    )
+            }
+            .padding(.horizontal)
+            .frame(maxHeight: .infinity)
+
+            HStack(spacing: isPortrait ? 16 : 12) {
+                if isWritingEntitled {
+                    circleButton(icon: "arrow.left", isPortrait: isPortrait) {
+                        wordController.previousWord()
+                        resetForNewWord()
+                    }
+                    circleButton(icon: "eye", isPortrait: isPortrait) {
+                        withAnimation(.easeInOut(duration: 0.3)) { wordController.showGuide = true }
+                        DispatchQueue.main.async { speakText(currentWord.kanji) }
+                        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
+                            withAnimation(.easeInOut(duration: 0.3)) { wordController.showGuide = false }
+                        }
+                    }
+                    toolButton(icon: "pencil", isActive: !wordController.isEraser, isPortrait: isPortrait) {
+                        wordController.isEraser = false
+                    }
+                    toolButton(icon: "eraser", isActive: wordController.isEraser, isPortrait: isPortrait) {
+                        wordController.isEraser = true
+                    }
+                    colorPickerButton(isPortrait: isPortrait)
+                    if wordController.currentWordIndex < words.count - 1 {
+                        circleButton(icon: "arrow.right", isPortrait: isPortrait) {
+                            if storeManager.isSubscribed || wordController.currentWordIndex < 2 {
+                                wordController.nextWord(totalWords: words.count)
+                                resetForNewWord()
+                            } else {
+                                showPurchaseView = true
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, isPortrait ? 16 : 8)
+            .padding(.bottom, isPortrait ? 20 : 10)
+        }
+        .zIndex(1)
+    }
+
+    // MARK: - 하단 버튼바
+
+    @ViewBuilder
+    private func bottomControlsBar(isPortrait: Bool, canvasSize: CGSize) -> some View {
+        HStack(spacing: isPortrait ? 16 : 12) {
+            circleButton(icon: "arrow.left", isPortrait: isPortrait) {
+                wordController.previousWord()
+                resetForNewWord()
+            }
+            circleButton(icon: "eye", isPortrait: isPortrait) {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    wordController.showGuide = true
+                    strokeAnimationDone = false
+                }
+            }
+            toolButton(icon: "pencil", isActive: !wordController.isEraser, isPortrait: isPortrait) {
+                wordController.isEraser = false
+            }
+            toolButton(icon: "eraser", isActive: wordController.isEraser, isPortrait: isPortrait) {
+                wordController.isEraser = true
+            }
+
+            // 펜 색상 선택 버튼
+            colorPickerButton(isPortrait: isPortrait)
+
+            if wordController.currentWordIndex < words.count - 1 {
+                circleButton(icon: "arrow.right", isPortrait: isPortrait) {
+                    if storeManager.isSubscribed || wordController.currentWordIndex < 2 {
+                        wordController.nextWord(totalWords: words.count)
+                        resetForNewWord()
+                    } else {
+                        showPurchaseView = true
+                    }
+                }
+            }
+        }
+        .padding(.vertical, isPortrait ? 16 : 8)
+        .padding(.bottom, isPortrait ? 20 : 10)
+    }
+
+    // MARK: - 잠금 오버레이
+
+    @ViewBuilder
+    private func lockOverlay(isPortrait: Bool) -> some View {
+        ZStack {
+            Color.black.opacity(0.55).cornerRadius(10)
+            VStack(spacing: 12) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: isPortrait ? 40 : 32))
+                    .foregroundColor(.white)
+                Text("구독하면 모든 단어를\n연습할 수 있어요")
+                    .font(.system(size: isPortrait ? 16 : 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                Button(action: { showPurchaseView = true }) {
+                    Text("구독하기")
+                        .font(.system(size: isPortrait ? 15 : 12, weight: .bold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color.white)
+                        .cornerRadius(20)
+                }
+            }
+        }
+    }
+
+
+    // MARK: - 공통 원형 버튼
+
+    private func circleButton(icon: String, isPortrait: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: isPortrait ? 20 : 16))
+                .foregroundColor(.white)
+                .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
+                .background(Color.blue)
+                .clipShape(Circle())
+        }
+    }
+
+    /// 펜/지우개 전용 — 활성 상태를 시각적으로 구분
+    private func toolButton(icon: String, isActive: Bool, isPortrait: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: isPortrait ? 20 : 16))
+                .foregroundColor(.white)
+                .frame(width: isPortrait ? 44 : 36, height: isPortrait ? 44 : 36)
+                .background(isActive ? Color.blue : Color.gray.opacity(0.5))
+                .clipShape(Circle())
+                .overlay(Circle().stroke(isActive ? Color.white.opacity(0.4) : Color.clear, lineWidth: 2))
+        }
+    }
+
+    // 색상 팔레트 프리셋
+    private let paletteColors: [(Color, String)] = [
+        (Color(UIColor.label),  "기본"),
+        (.red,                  "빨강"),
+        (.orange,               "주황"),
+        (.yellow,               "노랑"),
+        (.green,                "초록"),
+        (.blue,                 "파랑"),
+        (.purple,               "보라"),
+        (.pink,                 "분홍"),
+    ]
+
+    /// 현재 펜 색상을 미리보기로 보여주고, 탭하면 팔레트 팝업
+    private func colorPickerButton(isPortrait: Bool) -> some View {
+        let size: CGFloat = isPortrait ? 44 : 36
+        return Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                showColorPicker.toggle()
+            }
+        }) {
+            ZStack {
+                Circle()
+                    .fill(Color.gray.opacity(0.5))
+                    .frame(width: size, height: size)
+                Circle()
+                    .fill(penColor)
+                    .frame(width: size * 0.58, height: size * 0.58)
+                    .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 1.5))
+            }
+        }
+        .overlay(alignment: .top) {
+            if showColorPicker {
+                colorPalettePopup(buttonSize: size)
+                    .offset(y: -(size + 12 + CGFloat(paletteColors.count / 4 + 1) * 52))
+                    .zIndex(100)
+            }
+        }
+    }
+
+    /// 팝업 팔레트 — 4열 그리드
+    private func colorPalettePopup(buttonSize: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            let columns = Array(repeating: GridItem(.fixed(44), spacing: 8), count: 4)
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(paletteColors, id: \.1) { color, name in
+                    Button(action: {
+                        penColor = color
+                        wordController.isEraser = false   // 색상 고르면 자동으로 펜 모드
+                        withAnimation { showColorPicker = false }
+                    }) {
+                        ZStack {
+                            Circle()
+                                .fill(color)
+                                .frame(width: 36, height: 36)
+                                .overlay(
+                                    Circle()
+                                        .stroke(penColor == color ? Color.white : Color.white.opacity(0.25), lineWidth: penColor == color ? 2.5 : 1)
+                                )
+                            if penColor == color {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(color == .yellow ? .black : .white)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(12)
+        }
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
+        .shadow(radius: 12)
+        .frame(width: 4 * 44 + 3 * 8 + 24)
+    }
+
+    // MARK: - 툴바
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            Menu {
+                Button(action: {
+                    wordController.resetProgress()
+                    ProgressManager.shared.clearWordProgress()
+                    wordController.currentWordIndex = 0
+                    wordController.showCompletionScreen = false
+                    wordController.showGuide = false
+                    canvasView.drawing = PKDrawing()
+                }) {
+                    Label("처음으로", systemImage: "arrow.counterclockwise")
+                }
+                Button(action: { presentationMode.wrappedValue.dismiss() }) {
+                    Label("홈 화면으로 돌아가기", systemImage: "house.fill")
+                }
+                Menu("글자 크기") {
+                    Button("작게") { fontScale = 0.8 }
+                    Button("보통") { fontScale = 1.0 }
+                    Button("크게") { fontScale = 1.2 }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(.blue)
+            }
         }
     }
 }
+
+// MARK: - CanvasView
 
 struct CanvasView: UIViewRepresentable {
     @Binding var canvasView: PKCanvasView
     var colorScheme: ColorScheme
     var isDrawingEnabled: Bool = true
-    
+    var isEraser: Bool = false
+    var penColor: Color = Color(UIColor.label)   // 유저가 선택한 펜 색상
+
+    class Coordinator: NSObject {
+        var lastColorScheme: ColorScheme?
+        var lastIsEraser: Bool?
+        var lastIsEnabled: Bool?
+        var lastPenColor: Color?
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> PKCanvasView {
         canvasView.drawingPolicy = .anyInput
-        canvasView.isOpaque = false
-        canvasView.backgroundColor = .clear
         canvasView.isMultipleTouchEnabled = true
         canvasView.isUserInteractionEnabled = isDrawingEnabled
         canvasView.drawingGestureRecognizer.isEnabled = isDrawingEnabled
@@ -390,24 +494,60 @@ struct CanvasView: UIViewRepresentable {
         canvasView.drawingGestureRecognizer.delaysTouchesEnded = false
         canvasView.drawingGestureRecognizer.cancelsTouchesInView = false
         canvasView.drawingGestureRecognizer.require(toFail: canvasView.panGestureRecognizer)
+        applyAppearance(to: canvasView)
+        context.coordinator.lastColorScheme = colorScheme
+        context.coordinator.lastIsEraser    = isEraser
+        context.coordinator.lastIsEnabled   = isDrawingEnabled
+        context.coordinator.lastPenColor    = penColor
         return canvasView
     }
-    
+
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
-        let penColor: UIColor = (colorScheme == .dark) ? .white : .black
-        let ink = PKInkingTool(.pen, color: penColor, width: 2.0)
-        uiView.tool = ink
-        uiView.isUserInteractionEnabled = isDrawingEnabled
-        uiView.drawingGestureRecognizer.isEnabled = isDrawingEnabled
+        let c = context.coordinator
+        if c.lastIsEnabled != isDrawingEnabled {
+            c.lastIsEnabled = isDrawingEnabled
+            uiView.isUserInteractionEnabled = isDrawingEnabled
+            uiView.drawingGestureRecognizer.isEnabled = isDrawingEnabled
+        }
+        let schemeChanged  = c.lastColorScheme != colorScheme
+        let eraserChanged  = c.lastIsEraser    != isEraser
+        let colorChanged   = c.lastPenColor    != penColor
+        guard schemeChanged || eraserChanged || colorChanged else { return }
+        c.lastColorScheme = colorScheme
+        c.lastIsEraser    = isEraser
+        c.lastPenColor    = penColor
+        applyAppearance(to: uiView)
+    }
+
+    private func applyAppearance(to canvas: PKCanvasView) {
+        canvas.isOpaque = true
+        canvas.backgroundColor = (colorScheme == .dark)
+            ? UIColor(white: 0.10, alpha: 1.0)
+            : .white
+        if isEraser {
+            canvas.tool = PKEraserTool(.vector)
+        } else {
+            // penColor가 기본값(UIColor.label)이면 다크/라이트 자동 적응, 그 외엔 유저 선택색 사용
+            let uiColor = UIColor(penColor)
+            canvas.tool = PKInkingTool(.pen, color: uiColor, width: 2.0)
+        }
     }
 }
+
+// MARK: - BackgroundCharactersOverlay
 
 struct BackgroundCharactersOverlay: View {
     let text: String
     let isPortrait: Bool
     let canvasSize: CGSize
     let fontScale: CGFloat
-    
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var guideColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.25) : Color.gray.opacity(0.2)
+    }
+
     var body: some View {
         Group {
             if isPortrait {
@@ -417,7 +557,7 @@ struct BackgroundCharactersOverlay: View {
                             Text(String(char))
                                 .font(.system(size: min(canvasSize.width, canvasSize.height) * 0.4 * fontScale))
                                 .fontWeight(.bold)
-                                .foregroundColor(.gray.opacity(0.2))
+                                .foregroundColor(guideColor)
                         }
                     }
                 } else {
@@ -426,7 +566,7 @@ struct BackgroundCharactersOverlay: View {
                             Text(String(char))
                                 .font(.system(size: min(canvasSize.width, canvasSize.height) * 0.3 * fontScale))
                                 .fontWeight(.bold)
-                                .foregroundColor(.gray.opacity(0.2))
+                                .foregroundColor(guideColor)
                         }
                     }
                 }
@@ -436,12 +576,26 @@ struct BackgroundCharactersOverlay: View {
                         Text(String(char))
                             .font(.system(size: min(canvasSize.width, canvasSize.height) * 0.5 * fontScale))
                             .fontWeight(.bold)
-                            .foregroundColor(.gray.opacity(0.2))
+                            .foregroundColor(guideColor)
                     }
                 }
             }
         }
         .minimumScaleFactor(0.5)
         .lineLimit(1)
+    }
+}
+
+// MARK: - Color Hex 확장
+
+extension Color {
+    init(hex: String) {
+        let scanner = Scanner(string: hex)
+        var rgb: UInt64 = 0
+        scanner.scanHexInt64(&rgb)
+        let r = Double((rgb >> 16) & 0xFF) / 255
+        let g = Double((rgb >> 8) & 0xFF) / 255
+        let b = Double(rgb & 0xFF) / 255
+        self.init(red: r, green: g, blue: b)
     }
 }

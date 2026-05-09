@@ -1,664 +1,744 @@
 import SwiftUI
-import AVFoundation
-import Speech
+import NaturalLanguage
+
+// MARK: - Puzzle Piece Model
+
+struct PuzzlePiece: Identifiable, Equatable {
+    let id: UUID
+    let text: String
+}
+
+// MARK: - Puzzle State
+
+enum PuzzleState {
+    case playing, correct, wrong
+}
+
+// MARK: - Japanese Tokenizer
+
+/// Splits a Japanese sentence into puzzle-friendly chunks.
+/// Strategy:
+///  1. Extract the （source） annotation as a single trailing token.
+///  2. Run NLTokenizer (word unit) on the remainder – handles Japanese natively.
+///  3. Merge lone single-char particles / punctuation into the preceding token
+///     so we never end up with trivially tiny pieces.
+///  4. Guarantee at least 2 pieces; if everything collapses, bisect the string.
+enum JapaneseTokenizer {
+
+    /// Hiragana/katakana particles and punctuation that should not stand alone.
+    private static let mergeSet: Set<Character> = [
+        // ── 히라가나 조사 / 어미
+        "は","が","を","に","で","と","も","の","へ","や","か","ね","よ","な","ぞ",
+        "ぜ","さ","わ","し","て","ば","ら","り","も",
+        // ── 가타카나 조사 (히라가나 대응)
+        "ハ","ガ","ヲ","ニ","デ","ト","モ","ノ","ヘ","ヤ","カ","ネ","ヨ","ナ",
+        "ゾ","ゼ","サ","ワ","シ","テ","バ","ラ","リ",
+        // ── 작은 가타카나 (단독으로 서지 않는 문자)
+        "ァ","ィ","ゥ","ェ","ォ","ッ","ャ","ュ","ョ","ヮ","ヵ","ヶ",
+        // ── 작은 히라가나
+        "ぁ","ぃ","ぅ","ぇ","ぉ","っ","ゃ","ゅ","ょ","ゎ",
+        // ── 구두점 / 기호
+        "、","。","！","？","…","・","〜","〝","〞","ー","～"
+    ]
+
+    static func tokenize(_ sentence: String) -> [String] {
+
+        // 1. Isolate trailing （…） source annotation
+        var core         = sentence
+        var sourceSuffix: String? = nil
+
+        if let openIdx  = sentence.lastIndex(of: "（"),
+           let closeIdx = sentence.lastIndex(of: "）"),
+           openIdx < closeIdx {
+            sourceSuffix = String(sentence[openIdx...closeIdx])
+            core = String(sentence[..<openIdx]).trimmingCharacters(in: .whitespaces)
+        }
+
+        // 2. NLTokenizer – word unit handles Japanese segmentation natively
+        var tokens: [String] = []
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.setLanguage(.japanese)
+        tokenizer.string = core
+        tokenizer.enumerateTokens(in: core.startIndex..<core.endIndex) { range, _ in
+            tokens.append(String(core[range]))
+            return true
+        }
+
+        // Fallback: character-level if tokenizer returned nothing
+        if tokens.isEmpty {
+            tokens = core.map { String($0) }
+        }
+
+        // 3. Merge lone single-char merge candidates into the preceding token
+        var merged: [String] = []
+        for token in tokens {
+            if token.count == 1,
+               let ch = token.first,
+               mergeSet.contains(ch),
+               !merged.isEmpty {
+                merged[merged.count - 1] += token
+            } else {
+                merged.append(token)
+            }
+        }
+
+        // 4. Re-attach source annotation
+        if let suffix = sourceSuffix {
+            merged.append(suffix)
+        }
+
+        // 5. Guarantee ≥ 2 pieces
+        if merged.count < 2, let only = merged.first {
+            let mid = only.index(only.startIndex, offsetBy: only.count / 2)
+            merged = [String(only[..<mid]), String(only[mid...])]
+        }
+
+        return merged.filter { !$0.isEmpty }
+    }
+}
+
+// MARK: - GrammarPracticeView
 
 struct GrammarPracticeView: View {
+
     @StateObject private var grammarController = GrammarController()
-    @State private var isHighlighted = false
     @Environment(\.presentationMode) var presentationMode
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.scenePhase) private var scenePhase
-    
-    // TTS 관련 상태 변수
-    @State private var speechSynthesizer = AVSpeechSynthesizer()
-    @State private var isSpeaking = false
-    
-    // 녹음 관련 상태 변수들
-    @State private var audioRecorder: AVAudioRecorder?
-    @State private var audioPlayer: AVAudioPlayer?
-    @State private var isRecording = false
-    @State private var isPlaying = false
-    @State private var accuracy: Double?
-    @State private var showAccuracy = false
-    @State private var showPurchaseView = false
-    @StateObject private var storeManager = StoreKitManager.shared
-    
-    // 구독 여부에 따른 녹음 권한
-    private var isRecordingEntitled: Bool { storeManager.isSubscribed }
-    
-    // 폰트 크기 조절을 위한 상태 변수
-    @State private var fontScale = 1.0
-    
-    // 광고 관련 상태 - 앱 레벨에서 전역 관리
+
+    @State private var availablePieces:  [PuzzlePiece] = []
+    @State private var placedPieces:     [PuzzlePiece] = []
+    @State private var puzzleState:      PuzzleState   = .playing
+    @State private var showHint:         Bool          = false
+    @State private var wrongOffset:      CGFloat       = 0
+    @State private var correctTokens:    [String]      = []
+
+    @State private var fontScale:        Double        = 1.0
+
+    // 구독 / 페이월
+    @StateObject private var storeManager   = StoreKitManager.shared
+    @State private var showPurchaseView:     Bool          = false
+    private static let freeQuestionLimit    = 3   // 무료 제공 문제 수
+
     @StateObject private var interstitialViewModel = InterstitialViewModel()
     @ObservedObject private var appAdManager = AppAdManager.shared
-    
-    // 현재 언어 코드 가져오기
-    private var currentLanguageCode: String {
-        return Locale.current.language.languageCode?.identifier ?? "en"
-    }
-    
-    // 로컬라이징된 뜻 가져오기 (일본어는 뜻을 표시하지 않음)
-    private func getLocalizedMeaning() -> String? {
-        // 일본어 사용자는 뜻을 표시하지 않음
-        if currentLanguageCode == "ja" {
-            return nil
-        }
-        
-        // 각 언어별로 뜻 반환
-        switch currentLanguageCode {
-        case "ko":
-            return currentExample.meanings["ko"]
-        case "zh", "zh-Hans", "zh-Hant":
-            return currentExample.meanings["zh-Hans"]
-        default:
-            // 그 외 언어는 영어로 기본 표시
-            return currentExample.meanings["en"]
-        }
-    }
-    
-    // 로컬라이징된 번역 가져오기 (일본어는 번역을 표시하지 않음)
-    private func getLocalizedTranslation() -> String? {
-        // 일본어 사용자는 번역을 표시하지 않음
-        if currentLanguageCode == "ja" {
-            return nil
-        }
-        
-        switch currentLanguageCode {
-        case "ko":
-            return currentExample.translations["ko"] ?? currentExample.translations["en"] ?? ""
-        case "zh", "zh-Hans", "zh-Hant":
-            return currentExample.translations["zh-Hans"] ?? currentExample.translations["en"] ?? ""
-        default:
-            return currentExample.translations["en"] ?? ""
-        }
-    }
-    
-    // 화면 방향과 기기에 따른 배너 높이 계산 - 풀 배너 대응
-    private var bannerHeight: CGFloat {
-        if horizontalSizeClass == .regular && verticalSizeClass == .compact {
-            // iPad 가로 모드: 리더보드 배너 (728x90)
-            return 90
-        } else if horizontalSizeClass == .regular {
-            // iPad 세로 모드: 대형 배너
-            return 100
-        } else if horizontalSizeClass == .compact && verticalSizeClass == .compact {
-            // iPhone 가로 모드: 스마트 배너
-            return 32
-        } else {
-            // iPhone 세로 모드: 표준 배너
-            return 50
-        }
-    }
-    
-    var currentExample: GrammarExample {
+
+    // MARK: Derived
+
+    private var currentExample: GrammarExample {
         GrammarExample.examples[grammarController.currentExampleIndex]
     }
-    
-    private func highlightGrammarInExample() -> Text {
-        let example = currentExample.example
-        let grammar = currentExample.grammar
-        
-        if let range = example.range(of: grammar, options: .literal) {
-            let before = String(example[..<range.lowerBound])
-            let highlighted = String(example[range])
-            let after = String(example[range.upperBound...])
-            
-            return Text(before) + Text(highlighted).foregroundColor(.red) + Text(after)
-        }
-        
-        return Text(example)
+
+    private var currentLanguageCode: String {
+        Locale.current.language.languageCode?.identifier ?? "en"
     }
-    
-    // 오디오 세션 설정
-    private func setupAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
-            try session.setActive(true)
-            
-            // 마이크 이득 설정
-            try session.setInputGain(1.0)
-        } catch {
-            print("Audio session setup failed: \(error)")
+
+    private func localizedMeaning() -> String? {
+        guard currentLanguageCode != "ja" else { return nil }
+        switch currentLanguageCode {
+        case "ko":                     return currentExample.meanings["ko"]
+        case "zh","zh-Hans","zh-Hant": return currentExample.meanings["zh-Hans"]
+        default:                       return currentExample.meanings[currentLanguageCode] ?? currentExample.meanings["en"]
         }
     }
-    
-    // 녹음 상태 초기화
-    private func resetRecordingState() {
-        // 녹음 상태 초기화
-        isRecording = false
-        isPlaying = false
-        showAccuracy = false
-        accuracy = nil
-        
-        // 오디오 플레이어 중지 및 해제
-        audioPlayer?.stop()
-        audioPlayer = nil
-        
-        // 녹음 파일 삭제
-        let fileManager = FileManager.default
-        let audioURL = getDocumentsDirectory().appendingPathComponent("recording.m4a")
-        if fileManager.fileExists(atPath: audioURL.path) {
-            try? fileManager.removeItem(at: audioURL)
+
+    private func localizedTranslation() -> String? {
+        guard currentLanguageCode != "ja" else { return nil }
+        switch currentLanguageCode {
+        case "ko":                     return currentExample.translations["ko"]
+        case "zh","zh-Hans","zh-Hant": return currentExample.translations["zh-Hans"] ?? currentExample.translations["en"]
+        default:                       return currentExample.translations[currentLanguageCode] ?? currentExample.translations["en"]
         }
     }
-    
-    // 녹음 시작
-    private func startRecording() {
-        if !isRecordingEntitled {
+
+    // MARK: Puzzle Logic
+
+    private func setupPuzzle() {
+        let tokens    = JapaneseTokenizer.tokenize(currentExample.example)
+        correctTokens = tokens
+
+        var pieces = tokens.map { PuzzlePiece(id: UUID(), text: $0) }.shuffled()
+        if pieces.map(\.text) == tokens, pieces.count > 1 { pieces.shuffle() }
+
+        availablePieces = pieces
+        placedPieces    = []
+        puzzleState     = .playing
+        showHint        = false
+        wrongOffset     = 0
+    }
+
+    private func place(_ piece: PuzzlePiece) {
+        guard puzzleState == .playing,
+              let idx = availablePieces.firstIndex(of: piece) else { return }
+        availablePieces.remove(at: idx)
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) {
+            placedPieces.append(piece)
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if availablePieces.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { checkAnswer() }
+        }
+    }
+
+    private func remove(_ piece: PuzzlePiece) {
+        guard puzzleState == .playing,
+              let idx = placedPieces.firstIndex(of: piece) else { return }
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) {
+            placedPieces.remove(at: idx)
+            availablePieces.append(piece)
+        }
+    }
+
+    private func checkAnswer() {
+        if placedPieces.map(\.text) == correctTokens {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { puzzleState = .correct }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { advance() }
+        } else {
+            puzzleState = .wrong
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            withAnimation(.spring(response: 0.07, dampingFraction: 0.12)) { wrongOffset = 10 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                withAnimation { wrongOffset = 0 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                        availablePieces.append(contentsOf: placedPieces)
+                        placedPieces.removeAll()
+                        puzzleState = .playing
+                    }
+                }
+            }
+        }
+    }
+
+    private func advance() {
+        let nextIndex = grammarController.currentExampleIndex + 1
+
+        // 무료 한도 초과 & 미구독 → 결제창
+        if nextIndex >= GrammarPracticeView.freeQuestionLimit && !storeManager.isSubscribed {
             showPurchaseView = true
             return
         }
-        // 이전 녹음 상태 초기화
-        resetRecordingState()
-        
-        setupAudioSession()
-        
-        let audioFilename = getDocumentsDirectory().appendingPathComponent("recording.m4a")
-        
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44100.0,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-            AVEncoderBitRateKey: 128000,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false
-        ]
-        
-        do {
-            audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
-            audioRecorder?.prepareToRecord()
-            audioRecorder?.isMeteringEnabled = true
-            audioRecorder?.record()
-            isRecording = true
-        } catch {
-            print("Recording failed: \(error)")
+
+        if grammarController.currentExampleIndex < GrammarExample.examples.count - 1 {
+            grammarController.nextExample(totalExamples: GrammarExample.examples.count)
+            setupPuzzle()
+        } else {
+            grammarController.showCompletionScreen = true
         }
     }
-    
-    // 녹음 중지
-    private func stopRecording() {
-        audioRecorder?.stop()
-        isRecording = false
-        
-        // 음성 인식을 통한 정확도 측정
-        measureAccuracy()
-    }
-    
-    // 정확도 측정
-    private func measureAccuracy() {
-        if !isRecordingEntitled {
-            showPurchaseView = true
-            return
-        }
-        guard let audioURL = getDocumentsDirectory().appendingPathComponent("recording.m4a") as URL? else { return }
-        
-        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "ja"))
-        let request = SFSpeechURLRecognitionRequest(url: audioURL)
-        
-        recognizer?.recognitionTask(with: request) { (result, error) in
-            guard let result = result else { return }
-            
-            let userText = result.bestTranscription.formattedString
-            let correctText = currentExample.example
-            
-            // Levenshtein 거리를 사용한 정확도 계산
-            let accuracy = calculateAccuracy(userText: userText, correctText: correctText)
-            DispatchQueue.main.async {
-                self.accuracy = accuracy
-                self.showAccuracy = true
-            }
-        }
-    }
-    
-    // 정확도 계산 함수
-    private func calculateAccuracy(userText: String, correctText: String) -> Double {
-        let userChars = Array(userText)
-        let correctChars = Array(correctText)
-        
-        let maxLength = max(userChars.count, correctChars.count)
-        if maxLength == 0 { return 0 }
-        
-        var matches = 0
-        for i in 0..<min(userChars.count, correctChars.count) {
-            if userChars[i] == correctChars[i] {
-                matches += 1
-            }
-        }
-        
-        return Double(matches) / Double(maxLength) * 100
-    }
-    
-    // 녹음 재생
-    private func playRecording() {
-        if !isRecordingEntitled {
-            showPurchaseView = true
-            return
-        }
-        guard let audioURL = getDocumentsDirectory().appendingPathComponent("recording.m4a") as URL? else { return }
-        
-        do {
-            audioPlayer = try AVAudioPlayer(contentsOf: audioURL)
-            audioPlayer?.volume = 1.0
-            audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
-            isPlaying = true
-            
-            // 재생이 끝나면 상태 업데이트
-            DispatchQueue.main.asyncAfter(deadline: .now() + (audioPlayer?.duration ?? 0)) {
-                isPlaying = false
-            }
-        } catch {
-            print("Playback failed: \(error)")
-        }
-    }
-    
-    private func getDocumentsDirectory() -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
-    
-    // TTS 음성 재생 함수
-    private func speakText(_ text: String) {
-        if isSpeaking {
-            speechSynthesizer.stopSpeaking(at: .immediate)
-        }
-        
-        // 오디오 세션을 활성화하여 TTS가 정상적으로 작동하도록 보장합니다.
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("Failed to set up audio session for speech: \(error)")
-        }
-        
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "ja")
-        utterance.rate = 0.5
-        utterance.pitchMultiplier = 1.0
-        utterance.volume = 1.0
-        
-        isSpeaking = true
-        speechSynthesizer.speak(utterance)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            isSpeaking = false
-        }
-    }
-    
-    // 다음 예문으로 이동 (3번째 예문에서 광고 표시)
-    private func moveToNextExample() {
-        // 3번째 예문(인덱스 2)로 이동할 때 광고 표시 (앱이 실행되는 동안 1번만)
-        if grammarController.currentExampleIndex == 2 && !appAdManager.hasShownGrammarAd {
-            Task {
-                await interstitialViewModel.loadAd()
-                if interstitialViewModel.isAdReady {
-                    interstitialViewModel.showAd()
-                    appAdManager.hasShownGrammarAd = true
-                }
-            }
-        }
-        
-        grammarController.nextExample(totalExamples: GrammarExample.examples.count)
-        resetRecordingState()
-    }
-    
-    // 녹음/재생 버튼 생성 함수 (자물쇠 아이콘 포함)
-    @ViewBuilder
-    private func recordingButtons() -> some View {
-        Group {
-            // 녹음 버튼
-            Button(action: {
-                if !isRecordingEntitled {
-                    showPurchaseView = true
-                } else {
-                    if isRecording {
-                        stopRecording()
-                    } else {
-                        startRecording()
-                    }
-                }
-            }) {
-                ZStack {
-                    Circle()
-                        .fill(isRecording ? Color.red : Color.blue)
-                        .frame(width: 44, height: 44)
-                    
-                    if isRecordingEntitled {
-                        Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                            .font(.system(size: 20, weight: .regular))
-                            .foregroundColor(.white)
-                    } else {
-                        // 구독하지 않았으면 자물쇠만 표시
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                }
-            }
-            
-            // 재생 버튼
-            Button(action: {
-                if !isRecordingEntitled {
-                    showPurchaseView = true
-                } else {
-                    playRecording()
-                }
-            }) {
-                ZStack {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 44, height: 44)
-                    
-                    if isRecordingEntitled {
-                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 20, weight: .regular))
-                            .foregroundColor(.white)
-                    } else {
-                        // 구독하지 않았으면 자물쇠만 표시
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                }
-            }
-        }
-    }
-    
-    // 일본어 문장과 로컬라이징된 번역을 함께 표시하는 뷰
-    @ViewBuilder
-    private func exampleTextWithTranslation() -> some View {
-        VStack(spacing: 15) {
-            highlightGrammarInExample()
-                .font(.system(size: (horizontalSizeClass == .regular ? 50 : 40) * fontScale))
-                .fontWeight(.bold)
-                .padding()
-                .background(isHighlighted ? Color.yellow.opacity(0.3) : Color.clear)
-                .cornerRadius(10)
-                .onTapGesture {
-                    isHighlighted = true
-                    DispatchQueue.main.async {
-                        speakText(currentExample.example)
-                    }
-                    Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            isHighlighted = false
-                        }
-                    }
-                }
-            
-            // 로컬라이징된 번역 표시 (일본어는 nil이므로 표시 안됨)
-            if let translation = getLocalizedTranslation() {
-                Text(translation)
-                    .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
-                    .foregroundColor(.gray)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-        }
-    }
-    
+
+    // MARK: Body
+
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    // 상단 풀 배너
-                    AdaptiveTopBannerView()
-                    
-                    // 메인 컨텐츠
-                    ZStack {
-                        if grammarController.showCompletionScreen {
-                            // 모든 예문 학습 완료 시 화면 (기능은 예문 화면과 동일)
-                            VStack(spacing: 0) {
-                                Spacer()
-                                VStack(spacing: 30) {
-                                    exampleTextWithTranslation()
-                                    
-                                    // 구독한 경우에만 정확도 표시
-                                    if showAccuracy && isRecordingEntitled {
-                                        Text("정확도: \(String(format: "%.1f", accuracy ?? 0))%")
-                                            .font(.title3)
-                                            .foregroundColor(.blue)
-                                            .padding()
-                                    }
-                                }
-                                .padding(.horizontal)
-                                .frame(maxWidth: .infinity)
-                                Spacer()
-                                HStack(spacing: 16) {
-                                    Button(action: {
-                                        grammarController.previousExample()
-                                        resetRecordingState()
-                                    }) {
-                                        Image(systemName: "arrow.left")
-                                            .font(.system(size: 20, weight: .regular))
-                                            .foregroundColor(.white)
-                                            .frame(width: 44, height: 44)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    Button(action: {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            grammarController.showExample = false
-                                        }
-                                        DispatchQueue.main.async {
-                                            speakText(currentExample.grammar)
-                                        }
-                                        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                                            withAnimation(.easeInOut(duration: 0.3)) {
-                                                grammarController.showExample = true
-                                            }
-                                        }
-                                    }) {
-                                        Image(systemName: "eye")
-                                            .font(.system(size: 20, weight: .regular))
-                                            .foregroundColor(.white)
-                                            .frame(width: 44, height: 44)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    // 녹음/재생 버튼 (항상 표시, 자물쇠로 잠김)
-                                    recordingButtons()
-                                }
-                                .padding(.vertical, 16)
-                                .padding(.bottom, 20)
-                            }
-                        } else if !grammarController.showExample {
-                            // 문법 표시 화면 (눈알 아이콘 클릭 시)
-                            Color.black
-                                .ignoresSafeArea()
-                                .overlay(
-                                    VStack(spacing: 30) {
-                                        // 문법 표시
-                                        Text(currentExample.grammar)
-                                            .font(.system(size: (horizontalSizeClass == .regular ? 160 : 120) * fontScale))
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.white)
-                                            .padding()
-                                        
-                                        // 로컬라이징된 뜻 표시 (일본어는 nil이므로 표시 안됨)
-                                        if let meaning = getLocalizedMeaning() {
-                                            Text(meaning)
-                                                .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
-                                                .foregroundColor(.gray)
-                                                .multilineTextAlignment(.center)
-                                                .padding(.horizontal)
-                                        }
-                                    }
-                                )
-                                .transition(.opacity)
-                                .onAppear {
-                                    // 3초 후 예문 화면으로 자동 전환
-                                    Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            grammarController.showExample = true
-                                        }
-                                    }
-                                }
-                        } else {
-                            // 예문 화면
-                            VStack(spacing: 0) {
-                                Spacer()
-                                
-                                VStack(spacing: 30) {
-                                    exampleTextWithTranslation()
-                                    
-                                    // 구독한 경우에만 정확도 표시
-                                    if showAccuracy && isRecordingEntitled {
-                                        Text("정확도: \(String(format: "%.1f", accuracy ?? 0))%")
-                                            .font(.title3)
-                                            .foregroundColor(.blue)
-                                            .padding()
-                                    }
-                                }
-                                .padding(.horizontal)
-                                .frame(maxWidth: .infinity)
-                                
-                                Spacer()
-                                
-                                HStack(spacing: 16) {
-                                    Button(action: {
-                                        grammarController.previousExample()
-                                        resetRecordingState()
-                                    }) {
-                                        Image(systemName: "arrow.left")
-                                            .font(.system(size: 20, weight: .regular))
-                                            .foregroundColor(.white)
-                                            .frame(width: 44, height: 44)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    Button(action: {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            grammarController.showExample = false
-                                        }
-                                        // 음성 재생을 메인 스레드에서 실행
-                                        DispatchQueue.main.async {
-                                            speakText(currentExample.grammar)
-                                        }
-                                        // 3초 후에 화면 전환
-                                        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                                            withAnimation(.easeInOut(duration: 0.3)) {
-                                                grammarController.showExample = true
-                                            }
-                                        }
-                                    }) {
-                                        Image(systemName: "eye")
-                                            .font(.system(size: 20, weight: .regular))
-                                            .foregroundColor(.white)
-                                            .frame(width: 44, height: 44)
-                                            .background(Color.blue)
-                                            .clipShape(Circle())
-                                    }
-                                    
-                                    // 녹음/재생 버튼 (항상 표시, 자물쇠로 잠김)
-                                    recordingButtons()
-                                    
-                                    if grammarController.currentExampleIndex < GrammarExample.examples.count - 1 {
-                                        Button(action: {
-                                            moveToNextExample()
-                                        }) {
-                                            Image(systemName: "arrow.right")
-                                                .font(.system(size: 20, weight: .regular))
-                                                .foregroundColor(.white)
-                                                .frame(width: 44, height: 44)
-                                                .background(Color.blue)
-                                                .clipShape(Circle())
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 16)
-                                .padding(.bottom, 20)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    
-                    // 하단 풀 배너
-                    AdaptiveBottomBannerView()
+            AdaptiveTopBannerView()
 
+            if grammarController.showCompletionScreen {
+                completionView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(backgroundColor.ignoresSafeArea())
+            } else {
+                GeometryReader { geo in
+                    let w  = geo.size.width
+                    let h  = geo.size.height
+                    let hp = w * 0.045
+                    // 세로: 화면 높이 기준 답안 영역 고정 / 가로: 최소 고정값으로 스크롤 허용
+                    let answerH: CGFloat = max(90, h * 0.16)
+
+                    VStack(spacing: 0) {
+
+                        // ── 스크롤 가능 영역 ─────────────────────────────
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 0) {
+
+                                progressBar
+                                    .padding(.horizontal, hp)
+                                    .padding(.top, 14)
+                                    .padding(.bottom, 12)
+
+                                grammarCard
+                                    .padding(.horizontal, hp)
+
+                                sectionLabel("내 답안", systemImage: "message")
+                                    .padding(.horizontal, hp)
+                                    .padding(.top, 14)
+                                    .padding(.bottom, 5)
+
+                                answerArea
+                                    .padding(.horizontal, hp)
+                                    .frame(height: answerH)
+                                    .offset(x: wrongOffset)
+
+                                sectionLabel("단어 선택", systemImage: "hand.tap")
+                                    .padding(.horizontal, hp)
+                                    .padding(.top, 14)
+                                    .padding(.bottom, 5)
+
+                                tileBankView
+                                    .padding(.horizontal, hp)
+
+                                // 네비게이션 바 높이만큼 하단 여백 (가려지지 않도록)
+                                Spacer(minLength: 80)
+                            }
+                        }
+
+                        // ── 하단 네비게이션 고정 ──────────────────────────
+                        navigationBar
+                            .frame(height: 68)
+                            .padding(.horizontal, hp)
+                            .background(
+                                (colorScheme == .dark ? Color(white: 0.12) : Color(white: 0.96))
+                                    .shadow(color: .black.opacity(0.09), radius: 8, x: 0, y: -2)
+                            )
+                    }
+                    .frame(width: w, height: h)
                 }
+                .background(backgroundColor.ignoresSafeArea())
             }
+
+            AdaptiveBottomBannerView()
         }
-        .ignoresSafeArea(.container, edges: [.leading, .trailing]) // 좌우 여백 제거
+        .ignoresSafeArea(.container, edges: [.leading, .trailing])
         .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .tabBar) // 탭바 숨기기
-        .sheet(isPresented: $showPurchaseView) {
-            PurchaseView()
-        }
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Menu {
-                    Button(action: {
-                        grammarController.resetProgress()
-                        ProgressManager.shared.clearGrammarProgress()
-                        grammarController.currentExampleIndex = 0
-                        grammarController.showCompletionScreen = false
-                        grammarController.showExample = false
-                        resetRecordingState()
-                    }) {
-                        Label("Restart", systemImage: "arrow.counterclockwise")
-                    }
-                    Button(action: {
-                        presentationMode.wrappedValue.dismiss()
-                    }) {
-                        Label("Return to Main Screen", systemImage: "house.fill")
-                    }
-                    Menu("Font Size") {
-                        Button(action: {
-                            fontScale = 0.8
-                        }) {
-                            Text("Small")
-                        }
-                        Button(action: {
-                            fontScale = 1.0
-                        }) {
-                            Text("Medium")
-                        }
-                        Button(action: {
-                            fontScale = 1.2
-                        }) {
-                            Text("Large")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue)
-                }
-            }
+            ToolbarItem(placement: .navigationBarLeading) { menuButton }
+        }
+        .fullScreenCover(isPresented: $showPurchaseView) {
+            PurchaseView()
         }
         .onAppear {
             grammarController.loadProgress()
-            // 광고 미리 로드
-            Task {
-                await interstitialViewModel.loadAd()
+            setupPuzzle()
+            Task { await interstitialViewModel.loadAd() }
+        }
+    }
+
+    // MARK: Menu
+
+    private var menuButton: some View {
+        Menu {
+            Button(action: {
+                grammarController.resetProgress()
+                ProgressManager.shared.clearGrammarProgress()
+                grammarController.currentExampleIndex = 0
+                grammarController.showCompletionScreen = false
+                grammarController.showExample = false
+                setupPuzzle()
+            }) { Label("Restart", systemImage: "arrow.counterclockwise") }
+
+            Button(action: { presentationMode.wrappedValue.dismiss() }) {
+                Label("Return to Main Screen", systemImage: "house.fill")
             }
-            // 음성 인식 권한 요청
-            SFSpeechRecognizer.requestAuthorization { status in
-                switch status {
-                case .authorized:
-                    print("Speech recognition authorized")
-                case .denied:
-                    print("Speech recognition denied")
-                case .restricted:
-                    print("Speech recognition restricted")
-                case .notDetermined:
-                    print("Speech recognition not determined")
-                @unknown default:
-                    print("Speech recognition unknown status")
+
+            Menu("Font Size") {
+                Button("Small")  { fontScale = 0.8 }
+                Button("Medium") { fontScale = 1.0 }
+                Button("Large")  { fontScale = 1.2 }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle.fill")
+                .font(.system(size: 24))
+                .foregroundColor(.blue)
+        }
+    }
+
+    // MARK: Progress Bar
+
+    private var progressBar: some View {
+        let total   = max(1, GrammarExample.examples.count)
+        let current = grammarController.currentExampleIndex
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.gray.opacity(0.2)).frame(height: 5)
+                Capsule()
+                    .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: geo.size.width * CGFloat(current) / CGFloat(total), height: 5)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: current)
+            }
+        }
+        .frame(height: 5)
+    }
+
+    // MARK: Grammar Card
+
+    private var grammarCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(currentExample.grammar)
+                    .font(.system(size: 22 * fontScale, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Color.blue)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .minimumScaleFactor(0.55)
+                    .lineLimit(1)
+
+                if let meaning = localizedMeaning() {
+                    Text(meaning)
+                        .font(.system(size: 15 * fontScale))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                }
+
+                Spacer()
+
+                if localizedTranslation() != nil {
+                    Button(action: { withAnimation(.easeInOut(duration: 0.18)) { showHint.toggle() } }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: showHint ? "lightbulb.fill" : "lightbulb")
+                                .font(.system(size: 14))
+                            Text("ヒント")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(showHint ? .orange : .blue)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(showHint ? Color.orange.opacity(0.12) : Color.blue.opacity(0.1))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(showHint ? Color.orange.opacity(0.3) : Color.blue.opacity(0.25), lineWidth: 1.2)
+                                )
+                        )
+                    }
+                }
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: "puzzlepiece.extension.fill")
+                    .font(.system(size: 13)).foregroundColor(.blue.opacity(0.7))
+                Text("単語を正しい順番に並べてください")
+                    .font(.system(size: 13 * fontScale)).foregroundColor(.secondary)
+            }
+
+            if showHint, let translation = localizedTranslation() {
+                HStack(spacing: 8) {
+                    Rectangle().fill(Color.orange).frame(width: 3).clipShape(Capsule())
+                    Text(translation)
+                        .font(.system(size: 14 * fontScale))
+                        .foregroundColor(.orange).italic()
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(16)
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.07), radius: 8, x: 0, y: 2)
+    }
+
+    // MARK: Answer Area
+
+    private var answerArea: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(answerBorderColor, lineWidth: puzzleState == .playing ? 1.5 : 2.5)
+                .background(RoundedRectangle(cornerRadius: 14).fill(answerFillColor))
+                .animation(.spring(response: 0.25), value: puzzleState)
+
+            if placedPieces.isEmpty {
+                Text("ここに単語を置いてください")
+                    .font(.system(size: 16 * fontScale))
+                    .foregroundColor(.gray.opacity(0.38))
+                    .padding(16)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    FlowLayout(spacing: 6) {
+                        ForEach(placedPieces) { piece in
+                            AnswerTile(text: piece.text, state: puzzleState, fontSize: 17 * fontScale) { remove(piece) }
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.top, 12)
+
+                    if puzzleState == .correct {
+                        feedbackLabel(icon: "checkmark.circle.fill", text: "正解！🎉", color: .green)
+                    } else if puzzleState == .wrong {
+                        feedbackLabel(icon: "xmark.circle.fill", text: "もう一度試してください", color: .red)
+                    }
                 }
             }
         }
-        .onDisappear {
-            speechSynthesizer.stopSpeaking(at: .immediate)
-            isSpeaking = false
-            resetRecordingState()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var answerBorderColor: Color {
+        switch puzzleState {
+        case .playing: return Color.blue.opacity(0.35)
+        case .correct: return .green
+        case .wrong:   return .red
         }
+    }
+
+    private var answerFillColor: Color {
+        switch puzzleState {
+        case .playing: return colorScheme == .dark ? Color(white: 0.18) : Color.blue.opacity(0.03)
+        case .correct: return Color.green.opacity(0.08)
+        case .wrong:   return Color.red.opacity(0.08)
+        }
+    }
+
+    // MARK: Tile Bank
+    // Japanese tokens vary in width → FlowLayout lets them wrap naturally.
+
+    private var tileBankView: some View {
+        Group {
+            if availablePieces.isEmpty {
+                HStack {
+                    Spacer()
+                    Label("全ての単語を配置しました", systemImage: "checkmark.circle")
+                        .font(.system(size: 14)).foregroundColor(.secondary)
+                    Spacer()
+                }
+                .frame(height: 70)
+            } else {
+                FlowLayout(spacing: 10) {
+                    ForEach(availablePieces) { piece in
+                        BankTile(text: piece.text, fontSize: 19 * fontScale) { place(piece) }
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(colorScheme == .dark ? Color(white: 0.19) : Color(white: 0.97))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(Color.gray.opacity(0.15), lineWidth: 1)
+                        )
+                )
+            }
+        }
+    }
+
+    // MARK: Navigation Bar
+
+    private var navigationBar: some View {
+        HStack(spacing: 0) {
+            Button(action: {
+                guard grammarController.currentExampleIndex > 0 else { return }
+                grammarController.previousExample()
+                setupPuzzle()
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(grammarController.currentExampleIndex > 0 ? .blue : .gray.opacity(0.3))
+                    .frame(width: 48, height: 48)
+                    .background(Circle().fill(grammarController.currentExampleIndex > 0 ? Color.blue.opacity(0.12) : Color.clear))
+            }
+            .disabled(grammarController.currentExampleIndex == 0)
+
+            Spacer()
+
+            // 카운터 — 잠금 구간에는 자물쇠 뱃지 표시
+            HStack(spacing: 5) {
+                Text("\(grammarController.currentExampleIndex + 1)  /  \(GrammarExample.examples.count)")
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                if !storeManager.isSubscribed {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 8)
+            .background(Capsule().fill(Color.gray.opacity(0.13)))
+
+            Spacer()
+
+            // 스킵 버튼 — 잠금 구간이면 자물쇠 표시
+            let isNextLocked = (grammarController.currentExampleIndex + 1 >= GrammarPracticeView.freeQuestionLimit) && !storeManager.isSubscribed
+            Button(action: { advance() }) {
+                HStack(spacing: 4) {
+                    if isNextLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 13))
+                    } else {
+                        Text("スキップ").font(.system(size: 14, weight: .medium))
+                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+                    }
+                }
+                .foregroundColor(isNextLocked ? .orange : .blue.opacity(0.75))
+                .frame(height: 48).padding(.horizontal, 4)
+            }
+        }
+    }
+
+    // MARK: Completion View
+
+    private var completionView: some View {
+        VStack(spacing: 30) {
+            Spacer()
+            ZStack {
+                Circle().fill(Color.yellow.opacity(0.15)).frame(width: 130, height: 130)
+                Image(systemName: "star.fill").font(.system(size: 60)).foregroundColor(.yellow)
+            }
+            VStack(spacing: 10) {
+                Text("全てのパズルクリア！").font(.system(size: 26, weight: .bold))
+                Text("文法パズルを全て解きました。\nお疲れ様でした！🎉")
+                    .font(.system(size: 15)).foregroundColor(.secondary)
+                    .multilineTextAlignment(.center).lineSpacing(4)
+            }
+            Button(action: {
+                grammarController.resetProgress()
+                ProgressManager.shared.clearGrammarProgress()
+                grammarController.currentExampleIndex = 0
+                grammarController.showCompletionScreen = false
+                grammarController.showExample = false
+                setupPuzzle()
+            }) {
+                Label("最初からやり直す", systemImage: "arrow.counterclockwise")
+                    .font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
+                    .frame(width: 230, height: 54).background(Color.blue)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.blue.opacity(0.35), radius: 8, x: 0, y: 4)
+            }
+            Spacer()
+        }
+        .padding(32)
+    }
+
+    // MARK: Helpers
+
+    private var cardBackground: Color { colorScheme == .dark ? Color(white: 0.2) : .white }
+    private var backgroundColor: Color { colorScheme == .dark ? Color(white: 0.12) : Color(white: 0.94) }
+
+    @ViewBuilder
+    private func sectionLabel(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: 12, weight: .semibold)).foregroundColor(.secondary)
+    }
+
+    @ViewBuilder
+    private func feedbackLabel(icon: String, text: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            Text(text).fontWeight(.semibold)
+        }
+        .font(.system(size: 13)).foregroundColor(color)
+        .padding(.horizontal, 14).padding(.bottom, 8)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+}
+
+// MARK: - BankTile
+
+struct BankTile: View {
+    let text:     String
+    let fontSize: CGFloat
+    let action:   () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var pressed = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: fontSize, weight: .semibold))
+                .foregroundColor(.blue)
+                .padding(.horizontal, 16).padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color(white: 0.22) : Color(white: 0.97))
+                )
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue.opacity(0.45), lineWidth: 1.5))
+                .scaleEffect(pressed ? 0.95 : 1.0)
+                .animation(.spring(response: 0.15, dampingFraction: 0.7), value: pressed)
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in pressed = true }
+                .onEnded   { _ in pressed = false }
+        )
+    }
+}
+
+// MARK: - AnswerTile
+
+struct AnswerTile: View {
+    let text:     String
+    let state:    PuzzleState
+    let fontSize: CGFloat
+    let action:   () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: fontSize, weight: .medium))
+                .foregroundColor(fgColor)
+                .padding(.horizontal, 13).padding(.vertical, 8)
+                .background(bgColor)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(borderColor, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var fgColor: Color {
+        switch state {
+        case .playing: return colorScheme == .dark ? .white : Color(white: 0.15)
+        case .correct: return .green
+        case .wrong:   return .red
+        }
+    }
+    private var bgColor: Color {
+        switch state {
+        case .playing: return colorScheme == .dark ? Color(white: 0.28) : Color(white: 0.91)
+        case .correct: return Color.green.opacity(0.1)
+        case .wrong:   return Color.red.opacity(0.1)
+        }
+    }
+    private var borderColor: Color {
+        switch state {
+        case .playing: return Color.gray.opacity(0.3)
+        case .correct: return Color.green.opacity(0.5)
+        case .wrong:   return Color.red.opacity(0.5)
+        }
+    }
+}
+
+// MARK: - FlowLayout
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rH: CGFloat = 0, maxY: CGFloat = 0
+        for s in subviews {
+            let sz = s.sizeThatFits(.unspecified)
+            if x + sz.width > w, x > 0 { x = 0; y += rH + spacing; rH = 0 }
+            x += sz.width + spacing; rH = max(rH, sz.height); maxY = max(maxY, y + rH)
+        }
+        return CGSize(width: w, height: maxY)
+    }
+
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = b.minX, y = b.minY, rH: CGFloat = 0
+        for s in subviews {
+            let sz = s.sizeThatFits(.unspecified)
+            if x + sz.width > b.maxX, x > b.minX { x = b.minX; y += rH + spacing; rH = 0 }
+            s.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += sz.width + spacing; rH = max(rH, sz.height)
+        }
+    }
+}
+
+// MARK: - Array Extension
+
+extension Array {
+    func safeSlice(_ range: ClosedRange<Int>) -> ArraySlice<Element> {
+        let lo = Swift.max(range.lowerBound, 0)
+        let hi = Swift.min(range.upperBound, count - 1)
+        guard lo <= hi else { return [] }
+        return self[lo...hi]
     }
 }

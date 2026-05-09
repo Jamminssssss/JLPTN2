@@ -9,8 +9,7 @@ struct ContentView: View {
     @StateObject private var adManager = AppOpenAdManager.shared
     @State private var hasShownOpenAdThisSession = false
     @State private var hasRequestedATT = false
-    
-    // ⭐️ 추가: 광고 로딩/표시 상태 추적
+
     @State private var isInitializing = true
     @State private var adTimeoutWorkItem: DispatchWorkItem?
 
@@ -28,7 +27,6 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            // 메인 콘텐츠
             NavigationStack {
                 GeometryReader { geometry in
                     VStack(spacing: 0) {
@@ -36,26 +34,44 @@ struct ContentView: View {
 
                         ZStack {
                             backgroundColor.ignoresSafeArea()
+
                             GeometryReader { contentGeometry in
-                                let availableWidth = contentGeometry.size.width
-                                let availableHeight = contentGeometry.size.height
+                                let width = contentGeometry.size.width
+                                let height = contentGeometry.size.height
 
                                 if isLandscape {
-                                    landscapeLayout(width: availableWidth, height: availableHeight)
+                                    landscapeLayout(width: width, height: height)
                                 } else {
-                                    portraitLayout(width: availableWidth, height: availableHeight)
+                                    portraitLayout(width: width, height: height)
                                 }
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                         AdaptiveBottomBannerView()
                     }
                 }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Menu {
+                            NavigationLink(destination: WordListView()) {
+                                Label("단어장", systemImage: "character.book.closed")
+                            }
+
+                            NavigationLink(destination: GrammarPracticeView()) {
+                                Label("문법 연습", systemImage: "graduationcap")
+                            }
+
+                            NavigationLink(destination: PracticeWordView()) {
+                                Label("쓰기 연습", systemImage: "pencil")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.title2)
+                        }
+                    }
+                }
             }
-            .ignoresSafeArea(.container, edges: [.leading, .trailing])
-            
-            // ⭐️ 추가: 초기화 중 오버레이 (광고 표시 중에만)
+
             if isInitializing && adControlManager.shouldShowAppOpenAds {
                 Color.black.opacity(0.3)
                     .ignoresSafeArea()
@@ -64,271 +80,169 @@ struct ContentView: View {
                     }
             }
         }
-        .sheet(isPresented: $showPurchaseView) {
+        .fullScreenCover(isPresented: $showPurchaseView) {
             PurchaseView()
         }
         .onAppear {
-            print("📱 ContentView appeared")
-            
-            // ✅ ATT 권한 요청 (딱 1회)
             if #available(iOS 14, *), !hasRequestedATT {
                 hasRequestedATT = true
                 requestTrackingPermission()
             }
 
-            // ⭐️ 초기화 로직 개선
             Task {
-                // StoreKit 초기화 대기
                 while storeManager.products.isEmpty && !storeManager.isLoading {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
 
                 await storeManager.updateCustomerProductStatus()
-                
-                // ⭐️ UI가 안정화될 때까지 짧은 딜레이
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5초
+                try? await Task.sleep(nanoseconds: 500_000_000)
 
-                // 광고 표시 로직
                 if !hasShownOpenAdThisSession {
                     if adControlManager.shouldShowAppOpenAds {
-                        print("🎬 첫 실행 - 앱 오픈 광고 준비")
                         await adManager.loadAd()
-                        
-                        // ⭐️ 광고 로드 확인 후 표시
                         if adManager.appOpenAd != nil {
                             adManager.showAdIfAvailable()
                         } else {
-                            print("⚠️ 광고 로드 실패 - 메인 화면 표시")
                             isInitializing = false
                         }
                     } else {
-                        print("🚫 광고제거 구매로 인해 앱 오픈 광고 건너뜀")
                         isInitializing = false
                     }
                     hasShownOpenAdThisSession = true
                 }
             }
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            handleScenePhaseChange(oldPhase: oldPhase, newPhase: newPhase)
-        }
-        // ⭐️ 광고 상태 변경 감지
         .onChange(of: adManager.isAdShowing) { _, isShowing in
             if !isShowing && isInitializing {
-                // 광고가 닫히면 초기화 완료
-                print("✅ 광고 닫힘 - 메인 화면 표시")
                 cancelAdTimeout()
                 isInitializing = false
             }
         }
     }
-    
-    // ⭐️ 새로 추가: ATT 권한 요청 메서드
-    private func requestTrackingPermission() {
-        // UI가 준비된 후 요청
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            ATTrackingManager.requestTrackingAuthorization { status in
-                switch status {
-                case .authorized:
-                    print("✅ ATT 권한 허용됨")
-                case .denied:
-                    print("❌ ATT 권한 거부됨")
-                case .notDetermined:
-                    print("⚠️ ATT 권한 미결정")
-                case .restricted:
-                    print("⚠️ ATT 권한 제한됨")
-                @unknown default:
-                    print("⚠️ ATT 알 수 없는 상태")
-                }
+
+    // MARK: - Layout
+
+    private func portraitLayout(width: CGFloat, height: CGFloat) -> some View {
+        let padding: CGFloat = 20
+        let spacing: CGFloat = 20
+
+        let buttonWidth = width - padding * 2
+        let buttonHeight = (height - padding * 2 - spacing) / 2
+
+        return VStack(spacing: spacing) {
+
+            NavigationLink(destination: ReadingView(isTabBarHidden: .constant(false))) {
+                dynamicMenuButton(
+                    title: "menu.reading",
+                    icon: "book.fill",
+                    color: .blue,
+                    width: buttonWidth,
+                    height: buttonHeight
+                )
+            }
+
+            NavigationLink(destination: ListeningView(isTabBarHidden: .constant(false))) {
+                dynamicMenuButton(
+                    title: "menu.listening",
+                    icon: "headphones",
+                    color: .green,
+                    width: buttonWidth,
+                    height: buttonHeight
+                )
             }
         }
+        .padding(padding)
     }
-    
-    // ⭐️ 새로 추가: 광고 타임아웃 설정
+
+    private func landscapeLayout(width: CGFloat, height: CGFloat) -> some View {
+        let padding: CGFloat = 20
+        let spacing: CGFloat = 20
+
+        let buttonWidth = (width - padding * 2 - spacing) / 2
+        let buttonHeight = height - padding * 2
+
+        return HStack(spacing: spacing) {
+
+            NavigationLink(destination: ReadingView(isTabBarHidden: .constant(false))) {
+                dynamicMenuButton(
+                    title: "menu.reading",
+                    icon: "book.fill",
+                    color: .blue,
+                    width: buttonWidth,
+                    height: buttonHeight
+                )
+            }
+
+            NavigationLink(destination: ListeningView(isTabBarHidden: .constant(false))) {
+                dynamicMenuButton(
+                    title: "menu.listening",
+                    icon: "headphones",
+                    color: .green,
+                    width: buttonWidth,
+                    height: buttonHeight
+                )
+            }
+        }
+        .padding(padding)
+    }
+
+    // MARK: - Button
+
+    private func dynamicMenuButton(title: String, icon: String, color: Color, width: CGFloat, height: CGFloat) -> some View {
+        let safeWidth = max(0, width)
+        let safeHeight = max(0, height)
+        let iconSize = max(0, safeHeight * 0.35)
+        let spacing = max(0, safeHeight * 0.08)
+        let fontSize = max(1, min(safeHeight * 0.15, safeWidth * 0.12))
+
+        return VStack(spacing: spacing) {
+            Image(systemName: icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: iconSize, height: iconSize)
+                .foregroundColor(color)
+
+            Text(LocalizedStringKey(title))
+                .font(.system(size: fontSize, weight: .bold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.5)
+        }
+        .frame(width: safeWidth, height: safeHeight)
+        .background(colorScheme == .dark ? Color(white: 0.25) : .white)
+        .cornerRadius(20)
+        .shadow(radius: 5)
+    }
+
+    private var backgroundColor: Color {
+        colorScheme == .dark ? Color(white: 0.15) : Color(white: 0.95)
+    }
+    // MARK: - Ads
+
     private func setupAdTimeout() {
-        cancelAdTimeout() // 기존 타이머 취소
-        
-        let workItem = DispatchWorkItem { [self] in
+        cancelAdTimeout()
+
+        let workItem = DispatchWorkItem {
             if isInitializing {
-                print("⏰ 광고 타임아웃 (10초) - 강제로 메인 화면 표시")
                 isInitializing = false
             }
         }
-        
+
         adTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: workItem)
     }
-    
-    // ⭐️ 새로 추가: 타이머 취소
+
     private func cancelAdTimeout() {
         adTimeoutWorkItem?.cancel()
         adTimeoutWorkItem = nil
     }
-    
-    // ⭐️ ScenePhase 변경 처리 메서드 분리
-    private func handleScenePhaseChange(oldPhase: ScenePhase, newPhase: ScenePhase) {
-        // 백그라운드에서 포그라운드로 전환
-        if oldPhase == .background && newPhase == .active {
-            print("📱 앱이 포그라운드로 전환됨")
-            
-            // 이미 광고를 표시했거나 현재 표시 중이면 건너뜀
-            guard !hasShownOpenAdThisSession && !adManager.isAdShowing else {
-                print("⏸️ 광고 표시 건너뜀 (이미 표시함 또는 표시 중)")
-                return
-            }
 
-            Task {
-                await storeManager.updateCustomerProductStatus()
+    // MARK: - ATT
 
-                if adControlManager.shouldShowAppOpenAds {
-                    print("🎬 포그라운드 전환 - 앱 오픈 광고 준비")
-                    await adManager.loadAd()
-                    
-                    // ⭐️ 광고 로드 확인 후 표시
-                    if adManager.appOpenAd != nil {
-                        adManager.showAdIfAvailable()
-                        hasShownOpenAdThisSession = true
-                    } else {
-                        print("⚠️ 광고 로드 실패 - 광고 표시 건너뜀")
-                    }
-                } else {
-                    print("🚫 광고제거 구매로 인해 앱 오픈 광고 건너뜀")
-                    hasShownOpenAdThisSession = true
-                }
-            }
+    private func requestTrackingPermission() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            ATTrackingManager.requestTrackingAuthorization { _ in }
         }
-        
-        // 포그라운드에서 백그라운드로 전환
-        if oldPhase == .active && newPhase == .background {
-            print("📱 앱이 백그라운드로 전환됨")
-            // 다음 포그라운드 전환 시 광고를 다시 표시할 수 있도록 리셋
-            hasShownOpenAdThisSession = false
-            cancelAdTimeout()
-        }
-    }
-
-    // MARK: - Portrait Layout (세로 모드)
-    private func portraitLayout(width: CGFloat, height: CGFloat) -> some View {
-        let horizontalPadding: CGFloat = 20
-        let verticalPadding: CGFloat = 20
-        let itemSpacing: CGFloat = 15
-        
-        let buttonWidth = width - horizontalPadding * 2
-        let minButtonHeight: CGFloat = 80
-        let idealButtonHeight = max(minButtonHeight, (height - verticalPadding * 2 - itemSpacing * 4) / 5)
-        
-        return ScrollView {
-            VStack(spacing: itemSpacing) {
-                NavigationLink(destination: ReadingView(isTabBarHidden: .constant(false))) {
-                    dynamicMenuButton(title: "menu.reading", icon: "book.fill", color: .blue, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                NavigationLink(destination: ListeningView(isTabBarHidden: .constant(false))) {
-                    dynamicMenuButton(title: "menu.listening", icon: "headphones", color: .green, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                NavigationLink(destination: WordListView()) {
-                    dynamicMenuButton(title: "menu.wordlist", icon: "character.book.closed.fill", color: .purple, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                NavigationLink(destination: GrammarPracticeView()) {
-                    dynamicMenuButton(title: "menu.grammar", icon: "graduationcap.fill", color: .red, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                if storeManager.isSubscribed {
-                    NavigationLink(destination: PracticeWordView()) {
-                        dynamicMenuButton(title: "menu.writing", icon: "pencil", color: .orange, width: buttonWidth, height: idealButtonHeight)
-                    }
-                } else {
-                    Button(action: { showPurchaseView = true }) {
-                        dynamicMenuButton(title: "menu.writing", icon: "pencil.and.outline", color: .orange, width: buttonWidth, height: idealButtonHeight)
-                    }
-                }
-            }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-        }
-        .frame(width: width, height: height)
-    }
-    
-    // MARK: - Landscape Layout (가로 모드)
-    private func landscapeLayout(width: CGFloat, height: CGFloat) -> some View {
-        let horizontalPadding: CGFloat = 20
-        let verticalPadding: CGFloat = 15
-        let itemSpacing: CGFloat = 12
-        
-        let buttonWidth = width - horizontalPadding * 2
-        let minButtonHeight: CGFloat = 70
-        let idealButtonHeight = max(minButtonHeight, (height - verticalPadding * 2 - itemSpacing * 4) / 5)
-        
-        return ScrollView {
-            VStack(spacing: itemSpacing) {
-                NavigationLink(destination: ReadingView(isTabBarHidden: .constant(false))) {
-                    dynamicMenuButton(title: "menu.reading", icon: "book.fill", color: .blue, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                NavigationLink(destination: ListeningView(isTabBarHidden: .constant(false))) {
-                    dynamicMenuButton(title: "menu.listening", icon: "headphones", color: .green, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                NavigationLink(destination: WordListView()) {
-                    dynamicMenuButton(title: "menu.wordlist", icon: "character.book.closed.fill", color: .purple, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                NavigationLink(destination: GrammarPracticeView()) {
-                    dynamicMenuButton(title: "menu.grammar", icon: "graduationcap.fill", color: .red, width: buttonWidth, height: idealButtonHeight)
-                }
-                
-                if storeManager.isSubscribed {
-                    NavigationLink(destination: PracticeWordView()) {
-                        dynamicMenuButton(title: "menu.writing", icon: "pencil", color: .orange, width: buttonWidth, height: idealButtonHeight)
-                    }
-                } else {
-                    Button(action: { showPurchaseView = true }) {
-                        dynamicMenuButton(title: "menu.writing", icon: "pencil.and.outline", color: .orange, width: buttonWidth, height: idealButtonHeight)
-                    }
-                }
-            }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-        }
-        .frame(width: width, height: height)
-    }
-    
-    // MARK: - Menu Button
-    private func dynamicMenuButton(title: String, icon: String, color: Color, width: CGFloat, height: CGFloat) -> some View {
-        let safeWidth = max(width, 1)
-        let safeHeight = max(height, 1)
-        
-        return HStack(spacing: safeWidth * 0.04) {
-            Image(systemName: icon)
-                .resizable()
-                .scaledToFit()
-                .frame(
-                    width: max(1, min(safeHeight * 0.6, safeWidth * 0.12)),
-                    height: max(1, min(safeHeight * 0.6, safeWidth * 0.12))
-                )
-                .foregroundColor(color)
-            
-            Text(LocalizedStringKey(title))
-                .font(.system(size: max(1, min(safeHeight * 0.45, safeWidth * 0.055)), weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(width: safeWidth, height: safeHeight)
-        .background(colorScheme == .dark ? Color(white: 0.25) : .white)
-        .cornerRadius(safeHeight * 0.2)
-        .shadow(
-            color: colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.15),
-            radius: safeWidth * 0.01,
-            x: 0,
-            y: safeWidth * 0.008
-        )
-    }
-    
-    private var backgroundColor: Color {
-        colorScheme == .dark ? Color(white: 0.15) : Color(white: 0.95)
     }
 }
