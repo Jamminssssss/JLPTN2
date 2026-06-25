@@ -60,10 +60,23 @@ struct WordListView: View {
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             if !appAdManager.hasShownWordListAd {
-                adTimer?.invalidate()
-                adTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { _ in
-                    Task { @MainActor in
+                // ⭐️ 1. 화면에 진입하자마자 광고를 미리 로드해둡니다 (네트워크 대기 시간 최소화)
+                Task { @MainActor in
+                    if !interstitialViewModel.isAdReady {
                         await interstitialViewModel.loadAd()
+                    }
+                }
+                
+                // ⭐️ 2. 5초 대기 타이머 시작
+                adTimer?.invalidate()
+                adTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                    Task { @MainActor in
+                        // 만약 5초가 지났는데도 네트워크 문제로 로드가 덜 되었다면 안전장치로 한번 더 로드 대기
+                        if !interstitialViewModel.isAdReady {
+                            await interstitialViewModel.loadAd()
+                        }
+                        
+                        // 준비가 완료되었다면 광고 표시
                         if interstitialViewModel.isAdReady {
                             interstitialViewModel.showAd()
                             appAdManager.hasShownWordListAd = true
@@ -73,6 +86,7 @@ struct WordListView: View {
             }
         }
         .onDisappear {
+            // 화면을 벗어나면 타이머 해제
             adTimer?.invalidate()
         }
     }

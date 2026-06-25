@@ -1,59 +1,47 @@
 import SwiftUI
 import StoreKit
 
-// MARK: - PurchaseView
-
 struct PurchaseView: View {
     @StateObject private var storeManager = StoreKitManager.shared
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
 
-    @State private var selectedPlan: SubscriptionType = .yearly
     @State private var showAlert = false
     @State private var alertTitle = ""
     @State private var alertMessage = ""
+    @State private var selectedPlan: SubscriptionType = .yearly
+    @State private var animateHeader = false
+    @State private var animateCards = false
+    @State private var animatePlans = false
     @State private var isPurchasing = false
-    @State private var headerAppeared = false
-    @State private var featuresAppeared = false
-    @State private var plansAppeared = false
+    @State private var isEligibleForFreeTrial = false
 
-    // MARK: - Policy URLs
-    private let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    private let privacyURL = URL(string: "https://doc-hosting.flycricket.io/n2-test-light-privacy-policy/3f91b010-e8ef-4bdc-a3b1-e674a273d8a7/privacy")!
-
-    // MARK: - Savings calculation
-    private var savingsPercent: Int? {
+    // 연간 절약률 계산 (월 $2.99 x 12 = $35.88, 연 $19.99)
+    private var savingsPercent: Int {
         guard
             let monthly = storeManager.monthlyProduct?.price,
-            let yearly  = storeManager.yearlyProduct?.price,
-            monthly > 0
-        else { return nil }
+            let yearly = storeManager.yearlyProduct?.price
+        else { return 44 }
         let annualMonthly = monthly * 12
+        guard annualMonthly > 0 else { return 44 }
         let savings = (annualMonthly - yearly) / annualMonthly * 100
-        let savingsDouble = NSDecimalNumber(decimal: savings).doubleValue
-        return Int(savingsDouble.rounded())
+        return Int(truncating: savings as NSDecimalNumber)
     }
 
-    private var selectedProduct: Product? {
-        switch selectedPlan {
-        case .monthly: return storeManager.monthlyProduct
-        case .yearly:  return storeManager.yearlyProduct
-        default:       return nil
-        }
+    private var monthlyEquivalentFromYearly: String {
+        guard let yearly = storeManager.yearlyProduct?.price else { return "$1.67" }
+        let perMonth = yearly / 12
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = storeManager.yearlyProduct?.priceFormatStyle.currencyCode ?? "USD"
+        return formatter.string(from: perMonth as NSDecimalNumber) ?? "$1.67"
     }
 
     var body: some View {
         ZStack {
             // 배경 그라디언트
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.08, blue: 0.20),
-                    Color(red: 0.05, green: 0.12, blue: 0.30)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            backgroundGradient
+                .ignoresSafeArea()
 
             // 배경 블러 원형 장식
             ZStack {
@@ -85,19 +73,22 @@ struct PurchaseView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 28) {
 
-                        // MARK: 헤더
+                        // 헤더
                         headerSection
 
-                        // MARK: 기능 목록
+                        // 기능 혜택
                         featuresSection
 
-                        // MARK: 플랜 선택
-                        planPickerSection
+                        // 소셜 프루프
+                        socialProofBanner
 
-                        // MARK: CTA 버튼
-                        ctaSection
+                        // 플랜 선택 카드
+                        planSelectionSection
 
-                        // MARK: 복원 & 약관
+                        // 구독 CTA 버튼
+                        ctaButton
+
+                        // 보조 정보
                         footerSection
                     }
                     .padding(.horizontal, 20)
@@ -106,70 +97,86 @@ struct PurchaseView: View {
             }
         }
         .alert(alertTitle, isPresented: $showAlert) {
-            Button(String(localized: "common.ok"), role: .cancel) {}
+            Button("OK", role: .cancel) {}
         } message: {
             Text(alertMessage)
         }
         .onAppear {
-            Task { await storeManager.requestProducts() }
-            withAnimation(.spring(duration: 0.6, bounce: 0.3).delay(0.1)) { headerAppeared = true }
-            withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.3)) { featuresAppeared = true }
-            withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.5)) { plansAppeared = true }
+            if storeManager.activeSubscriptionType != .none {
+                selectedPlan = storeManager.activeSubscriptionType
+            }
+            withAnimation(.spring(duration: 0.6, bounce: 0.3).delay(0.1)) { animateHeader = true }
+            withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.3)) { animateCards = true }
+            withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.5)) { animatePlans = true }
+        }
+        .task(id: selectedPlan) {
+            await refreshFreeTrialEligibility()
         }
     }
 
-    // MARK: - Header Section
+    // MARK: - Background
+    private var backgroundGradient: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.07, green: 0.13, blue: 0.32),
+                Color(red: 0.05, green: 0.08, blue: 0.20)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
 
+    // MARK: - Header
     private var headerSection: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(Color.blue.opacity(0.25))
+                    .fill(LinearGradient(colors: [Color.orange, Color.yellow], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 80, height: 80)
-                Image(systemName: "star.fill")
+                    .shadow(color: .orange.opacity(0.5), radius: 20, x: 0, y: 8)
+                Image(systemName: "crown.fill")
                     .font(.system(size: 36))
-                    .foregroundStyle(
-                        LinearGradient(colors: [.yellow, .orange],
-                                       startPoint: .topLeading,
-                                       endPoint: .bottomTrailing)
-                    )
-            }
-
-            VStack(spacing: 8) {
-                Text("purchase.header.title")
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-
-                Text("purchase.header.subtitle")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(.white.opacity(0.6))
-                    .multilineTextAlignment(.center)
             }
+
+            Text(LocalizedStringKey("purchase.title"))
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+
+            Text(LocalizedStringKey("purchase.subtitle"))
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
         }
-        .padding(.top, 8)
-        .opacity(headerAppeared ? 1 : 0)
-        .offset(y: headerAppeared ? 0 : 20)
+        .opacity(animateHeader ? 1 : 0)
+        .offset(y: animateHeader ? 0 : 20)
     }
 
-    // MARK: - Features Section
-
+    // MARK: - Features
     private var featuresSection: some View {
         VStack(spacing: 0) {
-            FeatureRowV2(icon: "xmark.circle.fill",
-                         iconColor: Color(red: 1, green: 0.42, blue: 0.42),
-                         title: String(localized: "feature.remove_ads.title"),
-                         subtitle: String(localized: "feature.remove_ads.subtitle"))
+            PremiumFeatureRow(
+                icon: "nosign",
+                iconColor: .red,
+                title: LocalizedStringKey("purchase.feature.remove_ads.title"),
+                description: LocalizedStringKey("purchase.feature.remove_ads.description")
+            )
             Divider().background(Color.white.opacity(0.08)).padding(.horizontal, 16)
-            FeatureRowV2(icon: "mic.fill",
-                         iconColor: Color(red: 0.42, green: 0.78, blue: 1),
-                         title: String(localized: "feature.unlimited_recording.title"),
-                         subtitle: String(localized: "feature.unlimited_recording.subtitle"))
+            PremiumFeatureRow(
+                icon: "globe.americas.fill",
+                iconColor: .blue,
+                title: LocalizedStringKey("purchase.feature.reading_explanations.title"),
+                description: LocalizedStringKey("purchase.feature.reading_explanations.description")
+            )
             Divider().background(Color.white.opacity(0.08)).padding(.horizontal, 16)
-            FeatureRowV2(icon: "doc.text.fill",
-                         iconColor: Color(red: 0.72, green: 0.56, blue: 1),
-                         title: String(localized: "feature.full_script.title"),
-                         subtitle: String(localized: "feature.full_script.subtitle"))
+            PremiumFeatureRow(
+                icon: "doc.text.fill",
+                iconColor: .cyan,
+                title: LocalizedStringKey("purchase.feature.transcript.title"),
+                description: LocalizedStringKey("purchase.feature.transcript.description")
+            )
         }
         .background(
             RoundedRectangle(cornerRadius: 20)
@@ -179,68 +186,81 @@ struct PurchaseView: View {
             RoundedRectangle(cornerRadius: 20)
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
-        .opacity(featuresAppeared ? 1 : 0)
-        .offset(y: featuresAppeared ? 0 : 20)
+        .opacity(animateCards ? 1 : 0)
+        .offset(y: animateCards ? 0 : 20)
     }
 
-    // MARK: - Plan Picker Section
+    // MARK: - Social Proof
+    private var socialProofBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.3.fill")
+                .font(.system(size: 14))
+                .foregroundColor(.yellow)
+            Text(LocalizedStringKey("purchase.social_proof"))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.white.opacity(0.08))
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
+        .opacity(animateCards ? 1 : 0)
+    }
 
-    private var planPickerSection: some View {
-        VStack(spacing: 12) {
-            // 플랜 카드 선택
-            HStack(spacing: 12) {
-                // 월간
-                PlanCard(
-                    period: String(localized: "plan.monthly"),
-                    priceText: storeManager.monthlyProduct?.displayPrice ?? "...",
-                    perPeriod: String(localized: "plan.per_month"),
-                    badgeText: nil,
-                    isSelected: selectedPlan == .monthly,
-                    isLoading: storeManager.isLoading && storeManager.monthlyProduct == nil
-                ) {
-                    withAnimation(.spring(duration: 0.3)) { selectedPlan = .monthly }
-                }
+    // MARK: - Plan Selection
+    private var planSelectionSection: some View {
+        HStack(spacing: 12) {
+            // 연간 플랜 (추천)
+            PlanCard(
+                isSelected: selectedPlan == .yearly,
+                badge: "\(savingsPercent)% OFF",
+                badgeColor: .orange,
+                title: LocalizedStringKey("purchase.plan.yearly"),
+                priceMain: storeManager.yearlyProduct?.displayPrice ?? "$19.99",
+                priceSub: "\(monthlyEquivalentFromYearly) / mo",
+                tag: LocalizedStringKey("purchase.plan.recommended"),
+                isSubscribed: storeManager.activeSubscriptionType == .yearly
+            ) {
+                withAnimation(.spring(duration: 0.3)) { selectedPlan = .yearly }
+            }
 
-                // 연간
-                PlanCard(
-                    period: String(localized: "plan.yearly"),
-                    priceText: storeManager.yearlyProduct?.displayPrice ?? "...",
-                    perPeriod: String(localized: "plan.per_year"),
-                    badgeText: savingsPercent.map { value in "\(String(localized: "plan.save_percent", defaultValue: "Save")) \(value)%" },
-                    isSelected: selectedPlan == .yearly,
-                    isLoading: storeManager.isLoading && storeManager.yearlyProduct == nil
-                ) {
-                    withAnimation(.spring(duration: 0.3)) { selectedPlan = .yearly }
-                }
+            // 월간 플랜
+            PlanCard(
+                isSelected: selectedPlan == .monthly,
+                badge: nil,
+                badgeColor: .blue,
+                title: LocalizedStringKey("purchase.plan.monthly"),
+                priceMain: storeManager.monthlyProduct?.displayPrice ?? "$2.99",
+                priceSub: LocalizedStringKey("purchase.plan.monthly_sub"),
+                tag: nil,
+                isSubscribed: storeManager.activeSubscriptionType == .monthly
+            ) {
+                withAnimation(.spring(duration: 0.3)) { selectedPlan = .monthly }
             }
         }
-        .opacity(plansAppeared ? 1 : 0)
-        .offset(y: plansAppeared ? 0 : 20)
+        .opacity(animatePlans ? 1 : 0)
+        .offset(y: animatePlans ? 0 : 20)
     }
 
-    // MARK: - CTA Section
-
-    private var ctaSection: some View {
-        VStack(spacing: 14) {
-            // 이미 구독 중인지 확인
-            let isAlreadySubscribed = storeManager.activeSubscriptionType == selectedPlan
-
+    // MARK: - CTA Button
+    private var ctaButton: some View {
+        VStack(spacing: 10) {
             Button(action: {
-                guard !isAlreadySubscribed else { return }
-                Task { await handlePurchase() }
+                Task { await startPurchase() }
             }) {
                 ZStack {
-                    if isPurchasing {
+                    if isPurchasing || storeManager.isLoading {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(0.9)
                     } else if isAlreadySubscribed {
-                        Label(String(localized: "purchase.cta.currently_subscribed"), systemImage: "checkmark.circle.fill")
+                        Label(NSLocalizedString("purchase.subscribed", comment: ""), systemImage: "checkmark.circle.fill")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundColor(.white)
                     } else {
-                        Text(selectedPlan == .yearly ? String(localized: "purchase.cta.start_yearly") : String(localized: "purchase.cta.start_monthly"))
-                            .font(.system(size: 17, weight: .bold))
+                        Text(ctaTitle)
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
                     }
                 }
@@ -263,106 +283,143 @@ struct PurchaseView: View {
                 .scaleEffect(isPurchasing ? 0.97 : 1.0)
                 .animation(.spring(duration: 0.2), value: isPurchasing)
             }
-            .disabled(isPurchasing || isAlreadySubscribed)
+            .disabled(isPurchasing || storeManager.isLoading || isAlreadySubscribed)
 
-            // 구독 안내 소문자
-            Text(selectedPlan == .yearly
-                 ? String(localized: "purchase.cta.helper.yearly")
-                 : String(localized: "purchase.cta.helper.monthly"))
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.4))
+            if selectedPlan == .yearly {
+                Text(isEligibleForFreeTrial
+                     ? LocalizedStringKey("purchase.free_trial_disclosure")
+                     : LocalizedStringKey("purchase.cancel_anytime"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.4))
+            }
         }
-        .opacity(plansAppeared ? 1 : 0)
+        .opacity(animatePlans ? 1 : 0)
+    }
+
+    private var ctaTitle: String {
+        if isAlreadySubscribed {
+            return NSLocalizedString("purchase.subscribed", comment: "")
+        }
+        if isEligibleForFreeTrial {
+            return NSLocalizedString("purchase.cta_free_trial", comment: "")
+        }
+        return NSLocalizedString("purchase.cta_subscribe", comment: "")
+    }
+
+    private var isAlreadySubscribed: Bool {
+        storeManager.activeSubscriptionType == selectedPlan
     }
 
     // MARK: - Footer
-
     private var footerSection: some View {
-        HStack(spacing: 20) {
-            Button(action: {
-                Task { await handleRestore() }
-            }) {
-                HStack(spacing: 5) {
-                    if storeManager.isLoading {
-                        ProgressView().scaleEffect(0.7).tint(.white)
+        VStack(spacing: 12) {
+            HStack(spacing: 16) {
+                Button(action: { Task { await restorePurchases() } }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.clockwise")
+                        Text(LocalizedStringKey("purchase.restore"))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(1)
                     }
-                    Text("purchase.footer.restore")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.45))
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.45))
                 }
-            }
-            .disabled(storeManager.isLoading)
+                .disabled(storeManager.isLoading)
 
-            Text("·").foregroundColor(.white.opacity(0.25))
+                Text("·").foregroundColor(.white.opacity(0.25))
 
-            Button(action: { openURL(termsURL) }) {
-                Text("purchase.footer.terms")
+                Link(LocalizedStringKey("purchase.terms"),
+                     destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.45))
-            }
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
 
-            Text("·").foregroundColor(.white.opacity(0.25))
+                Text("·").foregroundColor(.white.opacity(0.25))
 
-            Button(action: { openURL(privacyURL) }) {
-                Text("purchase.footer.privacy")
+                Link(LocalizedStringKey("purchase.privacy"),
+                     destination: URL(string: "https://doc-hosting.flycricket.io/n2-test-light-privacy-policy/3f91b010-e8ef-4bdc-a3b1-e674a273d8a7/privacy")!)
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.45))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
             }
+
+            Text(LocalizedStringKey("purchase.subscription_notice"))
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.35))
+                .multilineTextAlignment(.center)
         }
     }
 
     // MARK: - Actions
 
-    @MainActor
-    private func handlePurchase() async {
-        withAnimation { isPurchasing = true }
-        defer { withAnimation { isPurchasing = false } }
+    private func refreshFreeTrialEligibility() async {
+        // 현재 구독 중이거나 과거 구독 이력 있는 사용자 → 무료 체험 제외
+        guard !storeManager.isSubscribed, !storeManager.hasEverSubscribed else {
+            isEligibleForFreeTrial = false
+            return
+        }
+        guard let product = selectedPlan == .yearly ? storeManager.yearlyProduct : storeManager.monthlyProduct,
+              let subscription = product.subscription else {
+            isEligibleForFreeTrial = false
+            return
+        }
+        isEligibleForFreeTrial = await subscription.isEligibleForIntroOffer
+    }
+
+    private func startPurchase() async {
+        isPurchasing = true
+        defer { isPurchasing = false }
         do {
-            switch selectedPlan {
-            case .monthly: _ = try await storeManager.purchaseMonthlySubscription()
-            case .yearly:  _ = try await storeManager.purchaseYearlySubscription()
-            default: break
+            if selectedPlan == .yearly {
+                _ = try await storeManager.purchaseYearlySubscription()
+            } else {
+                _ = try await storeManager.purchaseMonthlySubscription()
             }
         } catch {
-            alertTitle   = String(localized: "purchase.alert.failed.title")
+            alertTitle = NSLocalizedString("purchase.alert.failed.title", comment: "")
             alertMessage = error.localizedDescription
-            showAlert    = true
+            showAlert = true
         }
     }
 
-    @MainActor
-    private func handleRestore() async {
+    private func restorePurchases() async {
         do {
             try await storeManager.restorePurchases()
-            alertTitle   = String(localized: "purchase.alert.restore_complete.title")
-            alertMessage = storeManager.isPremium
-                ? String(localized: "purchase.alert.restore_complete.message.restored")
-                : String(localized: "purchase.alert.restore_complete.message.none")
+            alertTitle = NSLocalizedString("purchase.alert.restore.title", comment: "")
+            alertMessage = storeManager.isSubscribed ?
+                NSLocalizedString("purchase.alert.restore.success", comment: "") :
+                NSLocalizedString("purchase.alert.restore.none", comment: "")
             showAlert = true
         } catch {
-            alertTitle   = String(localized: "purchase.alert.restore_failed.title")
+            alertTitle = NSLocalizedString("purchase.alert.restore_failed.title", comment: "")
             alertMessage = error.localizedDescription
-            showAlert    = true
+            showAlert = true
         }
     }
 }
 
 // MARK: - Plan Card
-
 struct PlanCard: View {
-    let period: String
-    let priceText: String
-    let perPeriod: String
-    let badgeText: String?
     let isSelected: Bool
-    let isLoading: Bool
+    let badge: String?
+    let badgeColor: Color
+    let title: LocalizedStringKey
+    let priceMain: String
+    let priceSub: Any // String 또는 LocalizedStringKey
+    let tag: LocalizedStringKey?
+    let isSubscribed: Bool
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 8) {
                 // 뱃지
-                if let badge = badgeText {
+                if let badge = badge {
                     Text(badge)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white)
@@ -376,37 +433,35 @@ struct PlanCard: View {
                         )
                 } else {
                     // 높이 맞추기용 투명 placeholder
-                    Text("　")
+                    Text(" ")
                         .font(.system(size: 11))
                         .padding(.vertical, 4)
                         .opacity(0)
                 }
 
-                Text(period)
+                Text(title)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(isSelected ? .white : .white.opacity(0.5))
 
-                if isLoading {
-                    ShimmerLine()
-                        .frame(height: 22)
-                        .padding(.horizontal, 16)
-                } else {
-                    Text(priceText)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(isSelected ? .white : .white.opacity(0.5))
-                }
+                Text(isSubscribed ? NSLocalizedString("purchase.subscribed", comment: "") : priceMain)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(isSubscribed ? .green : (isSelected ? .white : .white.opacity(0.5)))
 
-                Text(perPeriod)
-                    .font(.system(size: 12))
-                    .foregroundColor(isSelected ? .white.opacity(0.6) : .white.opacity(0.3))
+                Group {
+                    if let sub = priceSub as? String {
+                        Text(sub)
+                    } else if let sub = priceSub as? LocalizedStringKey {
+                        Text(sub)
+                    }
+                }
+                .font(.system(size: 12))
+                .foregroundColor(isSelected ? .white.opacity(0.6) : .white.opacity(0.3))
             }
             .padding(.vertical, 20)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18)
-                    .fill(isSelected
-                          ? Color.white.opacity(0.14)
-                          : Color.white.opacity(0.05))
+                    .fill(isSelected ? Color.white.opacity(0.14) : Color.white.opacity(0.05))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18)
@@ -423,21 +478,20 @@ struct PlanCard: View {
                         lineWidth: isSelected ? 1.5 : 1
                     )
             )
-            .shadow(color: isSelected ? Color.blue.opacity(0.3) : .clear,
-                    radius: 12, x: 0, y: 4)
+            .shadow(color: isSelected ? Color.blue.opacity(0.3) : .clear, radius: 12, x: 0, y: 4)
             .scaleEffect(isSelected ? 1.02 : 1.0)
+            .animation(.spring(duration: 0.3), value: isSelected)
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Feature Row V2
-
-struct FeatureRowV2: View {
+// MARK: - Premium Feature Row
+struct PremiumFeatureRow: View {
     let icon: String
     let iconColor: Color
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringKey
+    let description: LocalizedStringKey
 
     var body: some View {
         HStack(spacing: 14) {
@@ -450,9 +504,10 @@ struct FeatureRowV2: View {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white)
-                Text(subtitle)
+                Text(description)
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(2)
             }
             Spacer()
         }
@@ -461,37 +516,5 @@ struct FeatureRowV2: View {
     }
 }
 
-// MARK: - Shimmer Loading Line
 
-struct ShimmerLine: View {
-    @State private var phase: CGFloat = -1
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.white.opacity(0.08))
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(
-                        LinearGradient(
-                            stops: [
-                                .init(color: .clear, location: 0),
-                                .init(color: .white.opacity(0.2), location: 0.4),
-                                .init(color: .white.opacity(0.25), location: 0.5),
-                                .init(color: .white.opacity(0.2), location: 0.6),
-                                .init(color: .clear, location: 1),
-                            ],
-                            startPoint: .init(x: phase, y: 0),
-                            endPoint: .init(x: phase + 1, y: 0)
-                        )
-                    )
-            }
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
-                phase = 1
-            }
-        }
-    }
-}
 

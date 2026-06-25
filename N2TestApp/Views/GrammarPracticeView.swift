@@ -122,6 +122,9 @@ struct GrammarPracticeView: View {
 
     @StateObject private var interstitialViewModel = InterstitialViewModel()
     @ObservedObject private var appAdManager = AppAdManager.shared
+    
+    // ⭐️ 5초 광고 타이머를 위한 상태 변수 추가
+    @State private var adTimer: Timer?
 
     // MARK: Derived
 
@@ -311,7 +314,24 @@ struct GrammarPracticeView: View {
         .onAppear {
             grammarController.loadProgress()
             setupPuzzle()
-            Task { await interstitialViewModel.loadAd() }
+            
+            // ⭐️ 5초 대기 후 전면광고 노출 로직 추가
+            if !appAdManager.hasShownGrammarAd {
+                adTimer?.invalidate()
+                adTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                    Task { @MainActor in
+                        await interstitialViewModel.loadAd()
+                        if interstitialViewModel.isAdReady {
+                            interstitialViewModel.showAd()
+                            appAdManager.hasShownGrammarAd = true
+                        }
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            // ⭐️ 화면을 벗어날 때 타이머 해제
+            adTimer?.invalidate()
         }
     }
 

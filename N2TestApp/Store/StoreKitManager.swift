@@ -17,6 +17,7 @@ class StoreKitManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var isSubscribed: Bool = false
     @Published var activeSubscriptionType: SubscriptionType = .none
+    @Published var hasEverSubscribed: Bool = false
 
     /// 구독 여부 = 프리미엄 여부
     var isPremium: Bool { isSubscribed }
@@ -29,6 +30,7 @@ class StoreKitManager: ObservableObject {
         Task {
             await requestProducts()
             await updateCustomerProductStatus()
+            await updatePastSubscriptionHistory()
         }
     }
 
@@ -125,6 +127,29 @@ class StoreKitManager: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - 과거 구독 이력 확인
+
+    func updatePastSubscriptionHistory() async {
+        var everSubscribed = false
+
+        for await result in Transaction.all {
+            do {
+                let transaction = try StoreKitManager.checkVerified(result)
+                // 광고 제거(removeAdsProductID)는 구독이 아니므로 제외
+                if transaction.productID == monthlySubscriptionID
+                    || transaction.productID == yearlySubscriptionID {
+                    everSubscribed = true
+                    break
+                }
+            } catch {
+                print("❌ 과거 이력 검증 실패: \(error)")
+            }
+        }
+
+        hasEverSubscribed = everSubscribed
+        print("📜 과거 구독 이력: \(hasEverSubscribed)")
     }
 
     // MARK: - 구독 상태 갱신

@@ -10,7 +10,7 @@ class AppAdManager: ObservableObject {
     @Published var hasShownListeningAd = false
     @Published var hasShownWordListAd = false
     @Published var hasShownGrammarAd = false
-    
+    @Published var hasPracticeWordAd = false
     private init() {}
     
     // 앱 종료시 상태 초기화 (앱 재시작시 자동으로 false로 초기화됨)
@@ -19,5 +19,6 @@ class AppAdManager: ObservableObject {
         hasShownListeningAd = false
         hasShownWordListAd = false
         hasShownGrammarAd = false
+        hasPracticeWordAd = false
     }
 }

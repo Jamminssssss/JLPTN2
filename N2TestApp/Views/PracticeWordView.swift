@@ -15,6 +15,11 @@ struct PracticeWordView: View {
     @State private var showPurchaseView = false
     @StateObject private var storeManager = StoreKitManager.shared
 
+    // ⭐️ 전면광고 관련 프로퍼티 추가
+    @StateObject private var interstitialViewModel = InterstitialViewModel()
+    @ObservedObject private var appAdManager = AppAdManager.shared
+    @State private var adTimer: Timer?
+
     @State private var strokeAnimationDone = false
     @State private var penColor: Color = Color(UIColor.label)   // 다크=흰, 라이트=검정 기본값
     @State private var showColorPicker = false
@@ -66,7 +71,10 @@ struct PracticeWordView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                AdaptiveTopBannerView()
+                // 세로 모드일 때만 상단 배너 표시
+                if geometry.size.height > geometry.size.width {
+                    AdaptiveTopBannerView()
+                }
 
                 ZStack {
                     (colorScheme == .dark ? Color.black : Color.white)
@@ -82,15 +90,36 @@ struct PracticeWordView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                AdaptiveBottomBannerView()
+                // 세로 모드일 때만 하단 배너 표시
+                if geometry.size.height > geometry.size.width {
+                    AdaptiveBottomBannerView()
+                }
             }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar { toolbarContent }
-        .onAppear { wordController.loadProgress() }
+        .onAppear {
+            wordController.loadProgress()
+            
+            // ⭐️ 30초 대기 후 전면광고 노출 로직 추가
+            if !appAdManager.hasPracticeWordAd {
+                adTimer?.invalidate()
+                adTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                    Task { @MainActor in
+                        await interstitialViewModel.loadAd()
+                        if interstitialViewModel.isAdReady {
+                            interstitialViewModel.showAd()
+                            appAdManager.hasPracticeWordAd = true
+                        }
+                    }
+                }
+            }
+        }
         .onDisappear {
             speechSynthesizer.stopSpeaking(at: .immediate)
             isSpeaking = false
+            // ⭐️ 화면을 벗어날 때 타이머 해제
+            adTimer?.invalidate()
         }
         .fullScreenCover(isPresented: $showPurchaseView) { PurchaseView() }
     }
@@ -104,43 +133,48 @@ struct PracticeWordView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            VStack(spacing: 20) {
-                Spacer()
+            // 가로 모드에서 단어가 잘리는 것을 방지하기 위해 ScrollView 추가
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 20) {
+                    Spacer(minLength: 20)
 
-                Text(currentWord.kanji)
-                    .font(.system(size: (horizontalSizeClass == .regular ? 160 : 120) * fontScale))
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding()
+                    Text(currentWord.kanji)
+                        .font(.system(size: (horizontalSizeClass == .regular ? 160 : 120) * fontScale))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding()
 
-                if let meaning = getLocalizedMeaning() {
-                    Text(meaning)
-                        .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-
-                Spacer()
-
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.35)) {
-                        wordController.showGuide = false
+                    if let meaning = getLocalizedMeaning() {
+                        Text(meaning)
+                            .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                     }
-                }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "pencil")
-                        Text("じゃあ、書いてみて。")
-                            .fontWeight(.semibold)
+
+                    Spacer(minLength: 20)
+
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            wordController.showGuide = false
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "pencil")
+                            Text("じゃあ、書いてみて。")
+                                .fontWeight(.semibold)
+                        }
+                        .font(.system(size: isPortrait ? 17 : 15))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 13)
+                        .background(Color.white)
+                        .cornerRadius(24)
                     }
-                    .font(.system(size: isPortrait ? 17 : 15))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 13)
-                    .background(Color.white)
-                    .cornerRadius(24)
+                    .padding(.bottom, isPortrait ? 32 : 16)
                 }
-                .padding(.bottom, isPortrait ? 32 : 16)
+                // 화면이 클 때(세로 모드)는 중앙 정렬을 유지하도록 최소 높이 지정
+                .frame(minHeight: geometry.size.height)
             }
         }
         .transition(.opacity)
@@ -187,8 +221,6 @@ struct PracticeWordView: View {
                 if !isWritingEntitled {
                     lockOverlay(isPortrait: isPortrait)
                 }
-
-
             }
             .padding(.top, isPortrait ? 16 : 8)
 
