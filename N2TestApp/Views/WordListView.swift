@@ -26,8 +26,9 @@ struct WordListView: View {
         }
     }
     
+    
     var filteredWords: [Word] {
-        return words // 검색 기능 제거
+        return VocabDataLoader.shared.words
     }
     
     var body: some View {

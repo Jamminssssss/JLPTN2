@@ -17,6 +17,44 @@
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
 		866330062E600BCB00A13457 /* Exceptions for "N2TestApp" folder in "N2TestApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			assetTagsByRelativePath = {
+				Audio/n2q1.mp3 = (Audio_N2_Set2, );
+				Audio/n2q10.mp3 = (Audio_N2_Set2, );
+				Audio/n2q11.mp3 = (Audio_N2_Set2, );
+				Audio/n2q12.mp3 = (Audio_N2_Set2, );
+				Audio/n2q13.mp3 = (Audio_N2_Set2, );
+				Audio/n2q14.mp3 = (Audio_N2_Set2, );
+				Audio/n2q15.mp3 = (Audio_N2_Set2, );
+				Audio/n2q16.mp3 = (Audio_N2_Set2, );
+				Audio/n2q17.mp3 = (Audio_N2_Set2, );
+				Audio/n2q18.mp3 = (Audio_N2_Set2, );
+				Audio/n2q19.mp3 = (Audio_N2_Set2, );
+				Audio/n2q2.mp3 = (Audio_N2_Set2, );
+				Audio/n2q20.mp3 = (Audio_N2_Set2, );
+				Audio/n2q21.mp3 = (Audio_N2_Set2, );
+				Audio/n2q22.mp3 = (Audio_N2_Set2, );
+				Audio/n2q23.mp3 = (Audio_N2_Set2, );
+				Audio/n2q24.mp3 = (Audio_N2_Set2, );
+				Audio/n2q25.mp3 = (Audio_N2_Set2, );
+				Audio/n2q26.mp3 = (Audio_N2_Set2, );
+				Audio/n2q27.mp3 = (Audio_N2_Set2, );
+				Audio/n2q28.mp3 = (Audio_N2_Set2, );
+				Audio/n2q29.mp3 = (Audio_N2_Set2, );
+				Audio/n2q3.mp3 = (Audio_N2_Set2, );
+				Audio/n2q30.mp3 = (Audio_N2_Set2, );
+				Audio/n2q31.mp3 = (Audio_N2_Set2, );
+				Audio/n2q36.m4a = (Audio_N2_Set3, );
+				Audio/n2q37.m4a = (Audio_N2_Set3, );
+				Audio/n2q38.m4a = (Audio_N2_Set3, );
+				Audio/n2q39.m4a = (Audio_N2_Set3, );
+				Audio/n2q4.mp3 = (Audio_N2_Set2, );
+				Audio/n2q40.m4a = (Audio_N2_Set3, );
+				Audio/n2q5.mp3 = (Audio_N2_Set2, );
+				Audio/n2q6.mp3 = (Audio_N2_Set2, );
+				Audio/n2q7.mp3 = (Audio_N2_Set2, );
+				Audio/n2q8.mp3 = (Audio_N2_Set2, );
+				Audio/n2q9.mp3 = (Audio_N2_Set2, );
+			};
 			membershipExceptions = (
 				Info.plist,
 			);
@@ -96,6 +134,10 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
+				KnownAssetTags = (
+					Audio_N2_Set2,
+					Audio_N2_Set3,
+				);
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
@@ -279,6 +321,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = N2TestApp/N2TestApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_ASSET_PATHS = "\"N2TestApp/Preview Content\"";
@@ -297,7 +340,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.2.4;
+				MARKETING_VERSION = 2.2.6;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -320,6 +363,7 @@
 				AD_INTERSTITIAL_ID = "ca-app-pub-9940677842340433/6830489468";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = N2TestApp/N2TestApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_ASSET_PATHS = "\"N2TestApp/Preview Content\"";
@@ -338,7 +382,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.2.4;
+				MARKETING_VERSION = 2.2.6;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

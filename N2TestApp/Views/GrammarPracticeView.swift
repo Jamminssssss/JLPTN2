@@ -1,3 +1,4 @@
+// GrammarPracticeView.swift
 import SwiftUI
 import NaturalLanguage
 
@@ -16,34 +17,20 @@ enum PuzzleState {
 
 // MARK: - Japanese Tokenizer
 
-/// Splits a Japanese sentence into puzzle-friendly chunks.
-/// Strategy:
-///  1. Extract the （source） annotation as a single trailing token.
-///  2. Run NLTokenizer (word unit) on the remainder – handles Japanese natively.
-///  3. Merge lone single-char particles / punctuation into the preceding token
-///     so we never end up with trivially tiny pieces.
-///  4. Guarantee at least 2 pieces; if everything collapses, bisect the string.
 enum JapaneseTokenizer {
 
-    /// Hiragana/katakana particles and punctuation that should not stand alone.
     private static let mergeSet: Set<Character> = [
-        // ── 히라가나 조사 / 어미
-        "は","が","を","に","で","と","も","の","へ","や","か","ね","よ","な","ぞ",
+        "は","が","を","に","で","と","も","の","へ","야","か","ね","よ","な","ぞ",
         "ぜ","さ","わ","し","て","ば","ら","り","も",
-        // ── 가타카나 조사 (히라가나 대응)
         "ハ","ガ","ヲ","ニ","デ","ト","モ","ノ","ヘ","ヤ","カ","ネ","ヨ","ナ",
         "ゾ","ゼ","サ","ワ","シ","テ","バ","ラ","リ",
-        // ── 작은 가타카나 (단독으로 서지 않는 문자)
         "ァ","ィ","ゥ","ェ","ォ","ッ","ャ","ュ","ョ","ヮ","ヵ","ヶ",
-        // ── 작은 히라가나
         "ぁ","ぃ","ぅ","ぇ","ぉ","っ","ゃ","ゅ","ょ","ゎ",
-        // ── 구두점 / 기호
         "、","。","！","？","…","・","〜","〝","〞","ー","～"
     ]
 
     static func tokenize(_ sentence: String) -> [String] {
 
-        // 1. Isolate trailing （…） source annotation
         var core         = sentence
         var sourceSuffix: String? = nil
 
@@ -54,7 +41,6 @@ enum JapaneseTokenizer {
             core = String(sentence[..<openIdx]).trimmingCharacters(in: .whitespaces)
         }
 
-        // 2. NLTokenizer – word unit handles Japanese segmentation natively
         var tokens: [String] = []
         let tokenizer = NLTokenizer(unit: .word)
         tokenizer.setLanguage(.japanese)
@@ -64,12 +50,10 @@ enum JapaneseTokenizer {
             return true
         }
 
-        // Fallback: character-level if tokenizer returned nothing
         if tokens.isEmpty {
             tokens = core.map { String($0) }
         }
 
-        // 3. Merge lone single-char merge candidates into the preceding token
         var merged: [String] = []
         for token in tokens {
             if token.count == 1,
@@ -82,12 +66,10 @@ enum JapaneseTokenizer {
             }
         }
 
-        // 4. Re-attach source annotation
         if let suffix = sourceSuffix {
             merged.append(suffix)
         }
 
-        // 5. Guarantee ≥ 2 pieces
         if merged.count < 2, let only = merged.first {
             let mid = only.index(only.startIndex, offsetBy: only.count / 2)
             merged = [String(only[..<mid]), String(only[mid...])]
@@ -115,21 +97,19 @@ struct GrammarPracticeView: View {
 
     @State private var fontScale:        Double        = 1.0
 
-    // 구독 / 페이월
     @StateObject private var storeManager   = StoreKitManager.shared
     @State private var showPurchaseView:     Bool          = false
-    private static let freeQuestionLimit    = 3   // 무료 제공 문제 수
+    private static let freeQuestionLimit    = 3
 
     @StateObject private var interstitialViewModel = InterstitialViewModel()
     @ObservedObject private var appAdManager = AppAdManager.shared
     
-    // ⭐️ 5초 광고 타이머를 위한 상태 변수 추가
     @State private var adTimer: Timer?
 
     // MARK: Derived
 
     private var currentExample: GrammarExample {
-        GrammarExample.examples[grammarController.currentExampleIndex]
+        grammarController.examples[grammarController.currentExampleIndex]
     }
 
     private var currentLanguageCode: String {
@@ -217,14 +197,13 @@ struct GrammarPracticeView: View {
     private func advance() {
         let nextIndex = grammarController.currentExampleIndex + 1
 
-        // 무료 한도 초과 & 미구독 → 결제창
         if nextIndex >= GrammarPracticeView.freeQuestionLimit && !storeManager.isSubscribed {
             showPurchaseView = true
             return
         }
 
-        if grammarController.currentExampleIndex < GrammarExample.examples.count - 1 {
-            grammarController.nextExample(totalExamples: GrammarExample.examples.count)
+        if grammarController.currentExampleIndex < grammarController.examples.count - 1 {
+            grammarController.nextExample(totalExamples: grammarController.examples.count)
             setupPuzzle()
         } else {
             grammarController.showCompletionScreen = true
@@ -246,12 +225,9 @@ struct GrammarPracticeView: View {
                     let w  = geo.size.width
                     let h  = geo.size.height
                     let hp = w * 0.045
-                    // 세로: 화면 높이 기준 답안 영역 고정 / 가로: 최소 고정값으로 스크롤 허용
                     let answerH: CGFloat = max(90, h * 0.16)
 
                     VStack(spacing: 0) {
-
-                        // ── 스크롤 가능 영역 ─────────────────────────────
                         ScrollView(.vertical, showsIndicators: false) {
                             VStack(spacing: 0) {
 
@@ -281,12 +257,10 @@ struct GrammarPracticeView: View {
                                 tileBankView
                                     .padding(.horizontal, hp)
 
-                                // 네비게이션 바 높이만큼 하단 여백 (가려지지 않도록)
                                 Spacer(minLength: 80)
                             }
                         }
 
-                        // ── 하단 네비게이션 고정 ──────────────────────────
                         navigationBar
                             .frame(height: 68)
                             .padding(.horizontal, hp)
@@ -315,7 +289,6 @@ struct GrammarPracticeView: View {
             grammarController.loadProgress()
             setupPuzzle()
             
-            // ⭐️ 5초 대기 후 전면광고 노출 로직 추가
             if !appAdManager.hasShownGrammarAd {
                 adTimer?.invalidate()
                 adTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
@@ -329,8 +302,12 @@ struct GrammarPracticeView: View {
                 }
             }
         }
+        // 🌟 복원 후 즉시 갱신
+        .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in
+            grammarController.loadProgress()
+            setupPuzzle()
+        }
         .onDisappear {
-            // ⭐️ 화면을 벗어날 때 타이머 해제
             adTimer?.invalidate()
         }
     }
@@ -367,7 +344,7 @@ struct GrammarPracticeView: View {
     // MARK: Progress Bar
 
     private var progressBar: some View {
-        let total   = max(1, GrammarExample.examples.count)
+        let total   = max(1, grammarController.examples.count)
         let current = grammarController.currentExampleIndex
         return GeometryReader { geo in
             ZStack(alignment: .leading) {
@@ -504,7 +481,6 @@ struct GrammarPracticeView: View {
     }
 
     // MARK: Tile Bank
-    // Japanese tokens vary in width → FlowLayout lets them wrap naturally.
 
     private var tileBankView: some View {
         Group {
@@ -555,9 +531,8 @@ struct GrammarPracticeView: View {
 
             Spacer()
 
-            // 카운터 — 잠금 구간에는 자물쇠 뱃지 표시
             HStack(spacing: 5) {
-                Text("\(grammarController.currentExampleIndex + 1)  /  \(GrammarExample.examples.count)")
+                Text("\(grammarController.currentExampleIndex + 1)  /  \(grammarController.examples.count)")
                     .font(.system(size: 15, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary)
                 if !storeManager.isSubscribed {
@@ -571,7 +546,6 @@ struct GrammarPracticeView: View {
 
             Spacer()
 
-            // 스킵 버튼 — 잠금 구간이면 자물쇠 표시
             let isNextLocked = (grammarController.currentExampleIndex + 1 >= GrammarPracticeView.freeQuestionLimit) && !storeManager.isSubscribed
             Button(action: { advance() }) {
                 HStack(spacing: 4) {

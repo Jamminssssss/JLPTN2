@@ -1,3 +1,4 @@
+// PracticeWordView.swift
 import SwiftUI
 import PencilKit
 import AVFoundation
@@ -15,23 +16,20 @@ struct PracticeWordView: View {
     @State private var showPurchaseView = false
     @StateObject private var storeManager = StoreKitManager.shared
 
-    // ⭐️ 전면광고 관련 프로퍼티 추가
     @StateObject private var interstitialViewModel = InterstitialViewModel()
     @ObservedObject private var appAdManager = AppAdManager.shared
     @State private var adTimer: Timer?
 
     @State private var strokeAnimationDone = false
-    @State private var penColor: Color = Color(UIColor.label)   // 다크=흰, 라이트=검정 기본값
+    @State private var penColor: Color = Color(UIColor.label)
     @State private var showColorPicker = false
 
-    /// 인덱스 0·1·2(= 1~3번째 단어)는 무료, 4번째(인덱스 3)부터 구독 필요
     private var isWritingEntitled: Bool { storeManager.isSubscribed || wordController.currentWordIndex < 3 }
 
     private var currentLanguageCode: String {
         Locale.current.language.languageCode?.identifier ?? "en"
     }
 
-    // 일본어 사용자는 뜻을 표시하지 않음
     private func getLocalizedMeaning() -> String? {
         if currentLanguageCode == "ja" { return nil }
         switch currentLanguageCode {
@@ -45,7 +43,7 @@ struct PracticeWordView: View {
     }
 
     var currentWord: Word {
-        words[wordController.currentWordIndex]
+        wordController.words[wordController.currentWordIndex]
     }
 
     private func speakText(_ text: String) {
@@ -60,7 +58,6 @@ struct PracticeWordView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { isSpeaking = false }
     }
 
-    // 단어 변경 시 상태 초기화
     private func resetForNewWord() {
         canvasView.drawing = PKDrawing()
         strokeAnimationDone = false
@@ -71,7 +68,6 @@ struct PracticeWordView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // 세로 모드일 때만 상단 배너 표시
                 if geometry.size.height > geometry.size.width {
                     AdaptiveTopBannerView()
                 }
@@ -90,7 +86,6 @@ struct PracticeWordView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // 세로 모드일 때만 하단 배너 표시
                 if geometry.size.height > geometry.size.width {
                     AdaptiveBottomBannerView()
                 }
@@ -101,7 +96,6 @@ struct PracticeWordView: View {
         .onAppear {
             wordController.loadProgress()
             
-            // ⭐️ 30초 대기 후 전면광고 노출 로직 추가
             if !appAdManager.hasPracticeWordAd {
                 adTimer?.invalidate()
                 adTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
@@ -115,16 +109,20 @@ struct PracticeWordView: View {
                 }
             }
         }
+        // 🌟 복원 후 즉시 갱신
+        .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in
+            wordController.loadProgress()
+            resetForNewWord()
+        }
         .onDisappear {
             speechSynthesizer.stopSpeaking(at: .immediate)
             isSpeaking = false
-            // ⭐️ 화면을 벗어날 때 타이머 해제
             adTimer?.invalidate()
         }
         .fullScreenCover(isPresented: $showPurchaseView) { PurchaseView() }
     }
 
-    // MARK: - 가이드 화면 (일본어: 정적 텍스트)
+    // MARK: - 가이드 화면
 
     @ViewBuilder
     private func strokeGuideView(geometry: GeometryProxy) -> some View {
@@ -133,7 +131,6 @@ struct PracticeWordView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // 가로 모드에서 단어가 잘리는 것을 방지하기 위해 ScrollView 추가
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 20) {
                     Spacer(minLength: 20)
@@ -173,7 +170,6 @@ struct PracticeWordView: View {
                     }
                     .padding(.bottom, isPortrait ? 32 : 16)
                 }
-                // 화면이 클 때(세로 모드)는 중앙 정렬을 유지하도록 최소 높이 지정
                 .frame(minHeight: geometry.size.height)
             }
         }
@@ -217,7 +213,6 @@ struct PracticeWordView: View {
                         )
                 }
 
-                // 잠금 오버레이
                 if !isWritingEntitled {
                     lockOverlay(isPortrait: isPortrait)
                 }
@@ -280,10 +275,10 @@ struct PracticeWordView: View {
                         wordController.isEraser = true
                     }
                     colorPickerButton(isPortrait: isPortrait)
-                    if wordController.currentWordIndex < words.count - 1 {
+                    if wordController.currentWordIndex < wordController.words.count - 1 {
                         circleButton(icon: "arrow.right", isPortrait: isPortrait) {
                             if storeManager.isSubscribed || wordController.currentWordIndex < 2 {
-                                wordController.nextWord(totalWords: words.count)
+                                wordController.nextWord(totalWords: wordController.words.count)
                                 resetForNewWord()
                             } else {
                                 showPurchaseView = true
@@ -320,13 +315,12 @@ struct PracticeWordView: View {
                 wordController.isEraser = true
             }
 
-            // 펜 색상 선택 버튼
             colorPickerButton(isPortrait: isPortrait)
 
-            if wordController.currentWordIndex < words.count - 1 {
+            if wordController.currentWordIndex < wordController.words.count - 1 {
                 circleButton(icon: "arrow.right", isPortrait: isPortrait) {
                     if storeManager.isSubscribed || wordController.currentWordIndex < 2 {
-                        wordController.nextWord(totalWords: words.count)
+                        wordController.nextWord(totalWords: wordController.words.count)
                         resetForNewWord()
                     } else {
                         showPurchaseView = true
@@ -379,7 +373,6 @@ struct PracticeWordView: View {
         }
     }
 
-    /// 펜/지우개 전용 — 활성 상태를 시각적으로 구분
     private func toolButton(icon: String, isActive: Bool, isPortrait: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
@@ -392,7 +385,6 @@ struct PracticeWordView: View {
         }
     }
 
-    // 색상 팔레트 프리셋
     private let paletteColors: [(Color, String)] = [
         (Color(UIColor.label),  "기본"),
         (.red,                  "빨강"),
@@ -404,7 +396,6 @@ struct PracticeWordView: View {
         (.pink,                 "분홍"),
     ]
 
-    /// 현재 펜 색상을 미리보기로 보여주고, 탭하면 팔레트 팝업
     private func colorPickerButton(isPortrait: Bool) -> some View {
         let size: CGFloat = isPortrait ? 44 : 36
         return Button(action: {
@@ -431,7 +422,6 @@ struct PracticeWordView: View {
         }
     }
 
-    /// 팝업 팔레트 — 4열 그리드
     private func colorPalettePopup(buttonSize: CGFloat) -> some View {
         VStack(spacing: 0) {
             let columns = Array(repeating: GridItem(.fixed(44), spacing: 8), count: 4)
@@ -439,7 +429,7 @@ struct PracticeWordView: View {
                 ForEach(paletteColors, id: \.1) { color, name in
                     Button(action: {
                         penColor = color
-                        wordController.isEraser = false   // 색상 고르면 자동으로 펜 모드
+                        wordController.isEraser = false
                         withAnimation { showColorPicker = false }
                     }) {
                         ZStack {
@@ -507,7 +497,7 @@ struct CanvasView: UIViewRepresentable {
     var colorScheme: ColorScheme
     var isDrawingEnabled: Bool = true
     var isEraser: Bool = false
-    var penColor: Color = Color(UIColor.label)   // 유저가 선택한 펜 색상
+    var penColor: Color = Color(UIColor.label)
 
     class Coordinator: NSObject {
         var lastColorScheme: ColorScheme?
@@ -559,7 +549,6 @@ struct CanvasView: UIViewRepresentable {
         if isEraser {
             canvas.tool = PKEraserTool(.vector)
         } else {
-            // penColor가 기본값(UIColor.label)이면 다크/라이트 자동 적응, 그 외엔 유저 선택색 사용
             let uiColor = UIColor(penColor)
             canvas.tool = PKInkingTool(.pen, color: uiColor, width: 2.0)
         }
