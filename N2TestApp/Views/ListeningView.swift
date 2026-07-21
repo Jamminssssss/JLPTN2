@@ -56,6 +56,9 @@ struct ListeningView: View {
     @State private var set2Progress: Double = 0
     @State private var set3Progress: Double = 0
 
+    // 🌟 재생 속도 관리 변수 추가
+    @State private var playbackRate: Float = 1.0
+
     // 🌟 ODR 다운로드 상태 관리 변수 추가
     @State private var isDownloadingODR: Bool = false
 
@@ -446,6 +449,43 @@ struct ListeningView: View {
                         Text("처음부터").font(.system(size: 12, weight: .medium))
                     }.foregroundColor(cs == .dark ? .white.opacity(0.65) : Color.examBorder(cs)).frame(maxWidth: .infinity).padding(.vertical, 10).background(Color.examCard(cs)).clipShape(RoundedRectangle(cornerRadius: 4)).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.examBorder(cs), lineWidth: 1.5))
                 }
+
+                // 🌟 정답 선택 후 나타나는 속도 조절 버튼 추가
+                if showAnswer {
+                    Menu {
+                        // as [Float] 명시하여 컴파일러 혼동 방지
+                        ForEach([0.5, 0.75, 1.0, 1.25, 1.5] as [Float], id: \.self) { rate in
+                            Button {
+                                if storeManager.isPremium {
+                                    changePlaybackRate(to: rate)
+                                } else {
+                                    showPurchaseView = true
+                                }
+                            } label: {
+                                HStack {
+                                    Text("\(String(format: "%g", rate))x")
+                                    if playbackRate == rate {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "speedometer").font(.system(size: 13, weight: .medium))
+                            Text("\(String(format: "%g", playbackRate))x").font(.system(size: 12, weight: .medium))
+                            if !storeManager.isPremium {
+                                Image(systemName: "lock.fill").font(.system(size: 10))
+                            }
+                        }
+                        .foregroundColor(storeManager.isPremium ? (cs == .dark ? .white.opacity(0.8) : Color.examGreen) : .orange)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.examCard(cs))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(storeManager.isPremium ? Color.examBorder(cs) : .orange, lineWidth: 1.5))
+                    }
+                }
             }
             .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 14)
         }
@@ -623,11 +663,13 @@ struct ListeningView: View {
             if currentQuestionIndex >= 2 { showPurchaseView = true; return }
         }
         if currentQuestionIndex < totalQuestionsCount - 1 {
+            playbackRate = 1.0 // 🌟 다음 문제로 넘어갈 때 속도 초기화
             stopAudio(); audioPlayer = nil; currentQuestionIndex += 1; selectedAnswer = nil; showAnswer = false; showScript = false; audioProgress = 0; isPlaying = false; setupAudio(); refreshSetProgress()
         } else { showResultSheet = true }
     }
     
     private func resetToFirstQuestion() {
+        playbackRate = 1.0 // 🌟 처음으로 돌아갈 때 속도 초기화
         stopAudio(); audioPlayer = nil; currentQuestionIndex = 0; progress = 0; score = 0; selectedAnswer = nil; showAnswer = false; audioProgress = 0; isPlaying = false; showScript = false; setupAudio()
         DatabaseManager.shared.resetProgress(level: level, quizGroup: quizGroup)
         if let set = selectedSet { DatabaseManager.shared.saveProgress(level: level, quizGroup: "Group2_set\(set)", index: 0) }
@@ -679,6 +721,11 @@ struct ListeningView: View {
         do {
             configureAudioSession()
             audioPlayer = try AVAudioPlayer(contentsOf: url)
+            
+            // 🌟 속도 조절 활성화 및 현재 설정된 배속 반영
+            audioPlayer?.enableRate = true
+            audioPlayer?.rate = playbackRate
+            
             audioPlayer?.prepareToPlay()
             if let start = question.startTime, let end = question.endTime, end > start { audioPlayer?.currentTime = start; setupEndTimeTimer() }
             else { audioPlayer?.currentTime = 0; endTimeTimer?.invalidate() }
@@ -692,7 +739,9 @@ struct ListeningView: View {
         endTimeTimer?.invalidate(); endTimeTimer = nil
         guard let question = currentQuestion, let player = audioPlayer, let startTime = question.startTime, let endTime = question.endTime, endTime > startTime else { return }
         if player.currentTime < startTime { player.currentTime = startTime }
-        let remainingTime = endTime - player.currentTime
+        
+        // 🌟 남은 시간을 재생 배속에 비례하여 계산 (배속이 빠르면 타이머 인터벌이 짧아짐)
+        let remainingTime = (endTime - player.currentTime) / Double(playbackRate)
         if remainingTime > 0 { endTimeTimer = Timer.scheduledTimer(withTimeInterval: remainingTime, repeats: false) { _ in self.stopAudioAtEndTime() } }
     }
     
@@ -734,6 +783,18 @@ struct ListeningView: View {
         if let startTime = currentQuestion?.startTime { audioPlayer?.currentTime = startTime }
         else { audioPlayer?.currentTime = 0 }
         updateTimer?.invalidate(); updateTimer = nil; endTimeTimer?.invalidate(); endTimeTimer = nil; isPlaying = false
+    }
+
+    // 🌟 배속 변경 처리 함수
+    private func changePlaybackRate(to rate: Float) {
+        playbackRate = rate
+        audioPlayer?.rate = rate
+        
+        // 🌟 재생 중 속도를 낮추면 플레이어가 일시정지되는 현상을 방지
+        if isPlaying {
+            audioPlayer?.play()
+            setupEndTimeTimer()
+        }
     }
 }
 

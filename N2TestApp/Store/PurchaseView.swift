@@ -164,6 +164,7 @@ struct PurchaseView: View {
                 description: LocalizedStringKey("purchase.feature.remove_ads.description")
             )
             Divider().background(Color.white.opacity(0.08)).padding(.horizontal, 16)
+            
             PremiumFeatureRow(
                 icon: "globe.americas.fill",
                 iconColor: .blue,
@@ -171,11 +172,21 @@ struct PurchaseView: View {
                 description: LocalizedStringKey("purchase.feature.reading_explanations.description")
             )
             Divider().background(Color.white.opacity(0.08)).padding(.horizontal, 16)
+            
             PremiumFeatureRow(
                 icon: "doc.text.fill",
                 iconColor: .cyan,
                 title: LocalizedStringKey("purchase.feature.transcript.title"),
                 description: LocalizedStringKey("purchase.feature.transcript.description")
+            )
+            Divider().background(Color.white.opacity(0.08)).padding(.horizontal, 16)
+            
+            // 🌟 새로 추가된 오디오 배속 조절 기능
+            PremiumFeatureRow(
+                icon: "speedometer",
+                iconColor: .green,
+                title: LocalizedStringKey("purchase.feature.playback_speed.title"),
+                description: LocalizedStringKey("purchase.feature.playback_speed.description")
             )
         }
         .background(
@@ -515,6 +526,3 @@ struct PremiumFeatureRow: View {
         .padding(.vertical, 14)
     }
 }
-
-
-
