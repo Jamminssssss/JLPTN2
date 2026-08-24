@@ -391,6 +391,10 @@ struct PurchaseView: View {
             } else {
                 _ = try await storeManager.purchaseMonthlySubscription()
             }
+            
+            // ✅ 결제 성공 시 뷰 닫고 자동으로 원래 화면 복귀
+            dismiss()
+            
         } catch {
             alertTitle = NSLocalizedString("purchase.alert.failed.title", comment: "")
             alertMessage = error.localizedDescription
@@ -401,11 +405,16 @@ struct PurchaseView: View {
     private func restorePurchases() async {
         do {
             try await storeManager.restorePurchases()
-            alertTitle = NSLocalizedString("purchase.alert.restore.title", comment: "")
-            alertMessage = storeManager.isSubscribed ?
-                NSLocalizedString("purchase.alert.restore.success", comment: "") :
-                NSLocalizedString("purchase.alert.restore.none", comment: "")
-            showAlert = true
+            
+            if storeManager.isSubscribed {
+                // ✅ 복원 성공 시 바로 뷰 닫고 자동으로 원래 화면 복귀
+                dismiss()
+            } else {
+                // 복원할 항목이 없는 경우에만 알림 띄우기
+                alertTitle = NSLocalizedString("purchase.alert.restore.title", comment: "")
+                alertMessage = NSLocalizedString("purchase.alert.restore.none", comment: "")
+                showAlert = true
+            }
         } catch {
             alertTitle = NSLocalizedString("purchase.alert.restore_failed.title", comment: "")
             alertMessage = error.localizedDescription

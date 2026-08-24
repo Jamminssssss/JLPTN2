@@ -33,7 +33,6 @@ private enum NoteSubject: String, CaseIterable, Identifiable {
     case listening = "Listening"
     var id: String { rawValue }
 
-    // 🌟 다국어 번역을 위한 뷰 전용 프로퍼티 추가
     var titleKey: LocalizedStringKey {
         switch self {
         case .reading: return "note.subject.reading"
@@ -77,6 +76,18 @@ private struct ListeningIncorrectItem: Identifiable {
     }
 }
 
+private struct ReadingPresentation: Identifiable {
+    let id = UUID()
+    let items: [ReadingIncorrectItem]
+    let initialIndex: Int
+}
+
+private struct ListeningPresentation: Identifiable {
+    let id = UUID()
+    let items: [ListeningIncorrectItem]
+    let initialIndex: Int
+}
+
 class SimpleAudioDelegate: NSObject, AVAudioPlayerDelegate {
     var onFinish: () -> Void
     init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
@@ -98,8 +109,8 @@ struct IncorrectNoteView: View {
     @State private var readingItems: [ReadingIncorrectItem] = []
     @State private var listeningItems: [ListeningIncorrectItem] = []
 
-    @State private var selectedReadingItem: ReadingIncorrectItem?
-    @State private var selectedListeningItem: ListeningIncorrectItem?
+    @State private var readingPresentation: ReadingPresentation?
+    @State private var listeningPresentation: ListeningPresentation?
 
     @StateObject private var storeManager = StoreKitManager.shared
     @State private var showPurchaseView = false
@@ -115,7 +126,6 @@ struct IncorrectNoteView: View {
                 header
 
                 Picker("", selection: $subject) {
-                    // 🌟 수정: s.rawValue -> s.titleKey
                     ForEach(NoteSubject.allCases) { s in Text(s.titleKey).tag(s) }
                 }
                 .pickerStyle(.segmented)
@@ -148,10 +158,9 @@ struct IncorrectNoteView: View {
             reload()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("incorrectNotesDidUpdate"))) { _ in reload() }
-        // 🌟 복원 후 즉시 갱신
         .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in reload() }
-        .fullScreenCover(item: $selectedReadingItem) { item in ReadingNoteDetailView(item: item) }
-        .fullScreenCover(item: $selectedListeningItem) { item in ListeningNoteDetailView(item: item) }
+        .fullScreenCover(item: $readingPresentation) { p in ReadingNoteDetailContainer(presentation: p) }
+        .fullScreenCover(item: $listeningPresentation) { p in ListeningNoteDetailContainer(presentation: p) }
         .fullScreenCover(isPresented: $showPurchaseView) { PurchaseView() }
     }
 
@@ -173,7 +182,11 @@ struct IncorrectNoteView: View {
     private var readingList: some View {
         List {
             ForEach(readingItems) { item in
-                Button { selectedReadingItem = item } label: {
+                Button {
+                    let sameSetItems = readingItems.filter { $0.setNumber == item.setNumber }
+                    let idx = sameSetItems.firstIndex(where: { $0.id == item.id }) ?? 0
+                    readingPresentation = ReadingPresentation(items: sameSetItems, initialIndex: idx)
+                } label: {
                     noteRow(badge: "\(item.setNumber)회", subtitle: "\(item.questionIndex + 1)번", preview: item.previewText, timestamp: item.note.timestamp)
                 }
                 .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -189,7 +202,11 @@ struct IncorrectNoteView: View {
     private var listeningList: some View {
         List {
             ForEach(listeningItems) { item in
-                Button { selectedListeningItem = item } label: {
+                Button {
+                    let sameSetItems = listeningItems.filter { $0.setNumber == item.setNumber }
+                    let idx = sameSetItems.firstIndex(where: { $0.id == item.id }) ?? 0
+                    listeningPresentation = ListeningPresentation(items: sameSetItems, initialIndex: idx)
+                } label: {
                     noteRow(badge: "\(item.setNumber)회", subtitle: "음성 문항", preview: item.question.question, timestamp: item.note.timestamp)
                 }
                 .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -243,7 +260,6 @@ struct IncorrectNoteView: View {
         }.buttonStyle(.plain)
     }
 
-    // 🌟 수정됨: 읽기, 듣기 목록을 항상 모두 업데이트
     private func reload() {
         readingItems = Self.fetchReadingItems(isSubscribed: storeManager.isSubscribed)
         listeningItems = Self.fetchListeningItems(isSubscribed: storeManager.isSubscribed)
@@ -308,60 +324,131 @@ struct IncorrectNoteView: View {
     }
 }
 
+// MARK: - 🌟 Containers (스와이프를 위한 부모 뷰)
+private struct ReadingNoteDetailContainer: View {
+    let presentation: ReadingPresentation
+    @State private var currentIndex: Int
+    @Environment(\.colorScheme) private var colorScheme
+    
+    init(presentation: ReadingPresentation) {
+        self.presentation = presentation
+        _currentIndex = State(initialValue: presentation.initialIndex)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            TabView(selection: $currentIndex) {
+                ForEach(Array(presentation.items.enumerated()), id: \.element.id) { index, item in
+                    ReadingNoteDetailView(item: item, totalCount: presentation.items.count, currentIndex: index)
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .background(Color.noteBackground(colorScheme).ignoresSafeArea())
+        }
+    }
+}
+
+private struct ListeningNoteDetailContainer: View {
+    let presentation: ListeningPresentation
+    @State private var currentIndex: Int
+    @Environment(\.colorScheme) private var colorScheme
+    
+    init(presentation: ListeningPresentation) {
+        self.presentation = presentation
+        _currentIndex = State(initialValue: presentation.initialIndex)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            TabView(selection: $currentIndex) {
+                ForEach(Array(presentation.items.enumerated()), id: \.element.id) { index, item in
+                    ListeningNoteDetailView(item: item, totalCount: presentation.items.count, currentIndex: index)
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .background(Color.noteBackground(colorScheme).ignoresSafeArea())
+        }
+    }
+}
+
 // MARK: - Reading Detail View
 private struct ReadingNoteDetailView: View {
     let item: ReadingIncorrectItem
+    let totalCount: Int
+    let currentIndex: Int
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     private var cs: ColorScheme { colorScheme }
 
-    @State private var showExplanation = true
+    // 🌟 다시 풀기를 위한 상태 변수 추가
+    @State private var showExplanation = false
+    @State private var hasSolved = false
+    @State private var selectedOption: String? = nil
+
     @State private var fullscreenImageItem: IdentifiableImage?
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { proxy in
-                ScrollView {
-                    VStack(alignment: .center, spacing: 16) {
-                        Spacer()
-                        let pText = item.passageText ?? ""
-                        let pImage = item.passageImageName
-                        if !pText.isEmpty || (pImage != nil && !pImage!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                            sectionBox(title: "지  문", content: pText, underline: item.passageUnderline, imageName: pImage, accent: .noteBlue)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .center, spacing: 16) {
+                    Spacer()
+                    let pText = item.passageText ?? ""
+                    let pImage = item.passageImageName
+                    if !pText.isEmpty || (pImage != nil && !pImage!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        sectionBox(title: "지  문", content: pText, underline: item.passageUnderline, imageName: pImage, accent: .noteBlue)
+                    }
+                    
+                    let prText = item.promptText ?? ""
+                    let prImage = item.promptImageName
+                    if !prText.isEmpty || (prImage != nil && !prImage!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        sectionBox(title: "문  제", content: prText, underline: item.question?.underline ?? [], imageName: prImage, accent: .noteBlue)
+                    }
+
+                    if let q = item.question {
+                        // 🌟 풀이를 완료한 경우에만 해설을 선택지 위에 표시
+                        if hasSolved, let expl = q.localizedExplanation, !expl.isEmpty {
+                            explanationPanel(text: expl, showExpl: $showExplanation, accent: .noteGold)
                         }
                         
-                        let prText = item.promptText ?? ""
-                        let prImage = item.promptImageName
-                        if !prText.isEmpty || (prImage != nil && !prImage!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                            sectionBox(title: "문  제", content: prText, underline: item.question?.underline ?? [], imageName: prImage, accent: .noteBlue)
-                        }
-
-                        if let q = item.question {
-                            if let expl = q.localizedExplanation, !expl.isEmpty {
-                                explanationPanel(text: expl, showExpl: $showExplanation, accent: .noteGold)
-                            }
-                            examOptions(question: q)
-                        } else {
-                            Text("문제 데이터를 불러올 수 없습니다.").font(.system(size: 14)).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .center)
-                        }
-                        Spacer()
+                        examOptions(question: q)
+                    } else {
+                        Text("문제 데이터를 불러올 수 없습니다.")
+                            .font(.system(size: 14)).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .center)
                     }
-                    .padding(16).frame(minHeight: proxy.size.height)
+                    Spacer()
                 }
+                .padding(16).frame(minHeight: proxy.size.height)
             }
-            .background(Color.noteBackground(cs).ignoresSafeArea())
-            .navigationTitle("\(item.setNumber)회 · \(item.questionIndex + 1)번")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+        }
+        .background(Color.noteBackground(cs).ignoresSafeArea())
+        .navigationTitle("\(item.setNumber)회 · \(item.questionIndex + 1)번 (\(currentIndex + 1)/\(totalCount))")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 16) {
+                    // 🌟 다시 풀기 버튼
+                    if hasSolved {
+                        Button("다시 풀기") {
+                            withAnimation {
+                                hasSolved = false
+                                selectedOption = nil
+                                showExplanation = false
+                            }
+                        }
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Color.noteBlue)
+                    }
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).foregroundColor(cs == .dark ? .white.opacity(0.8) : .black.opacity(0.7)).padding(4)
                     }
                 }
             }
-            .fullScreenCover(item: $fullscreenImageItem) { item in
-                FullscreenImageView(image: item.image) { fullscreenImageItem = nil }
-            }
+        }
+        .fullScreenCover(item: $fullscreenImageItem) { item in
+            FullscreenImageView(image: item.image) { fullscreenImageItem = nil }
         }
     }
 
@@ -414,27 +501,53 @@ private struct ReadingNoteDetailView: View {
         }
     }
 
+    // 🌟 사용자가 탭하여 답을 고를 수 있도록 옵션 수정
     @ViewBuilder private func examOptions(question: Question) -> some View {
         VStack(alignment: .center, spacing: 0) {
             ForEach(Array(question.options.enumerated()), id: \.offset) { idx, option in
                 let isCorrect = option == question.answer
+                let isSelected = option == selectedOption
 
-                Button { } label: {
+                Button {
+                    if !hasSolved {
+                        withAnimation {
+                            selectedOption = option
+                            hasSolved = true
+                            showExplanation = true
+                        }
+                    }
+                } label: {
                     HStack(alignment: .top, spacing: 12) {
                         Text(AttributedString(applyUnderline(to: option, underlinedWords: question.underline)))
                             .font(.custom("Hiragino Sans", size: 15, relativeTo: .body))
-                            .foregroundColor(isCorrect ? Color.green : cs == .dark ? .white.opacity(0.88) : Color(red: 0.08, green: 0.06, blue: 0.12))
+                            .foregroundColor(
+                                (hasSolved && isCorrect) ? Color.green :
+                                (hasSolved && isSelected && !isCorrect) ? Color.red :
+                                (cs == .dark ? .white.opacity(0.88) : Color(red: 0.08, green: 0.06, blue: 0.12))
+                            )
                             .multilineTextAlignment(.center).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .center).fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
-                    .background(isCorrect ? Color.green.opacity(0.06) : Color.clear)
+                    .background(
+                        (hasSolved && isCorrect) ? Color.green.opacity(0.06) :
+                        (hasSolved && isSelected && !isCorrect) ? Color.red.opacity(0.06) : Color.clear
+                    )
                     .contentShape(Rectangle())
                     .overlay(alignment: .trailing) {
-                        if isCorrect { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundColor(.green).padding(.trailing, 12) }
+                        HStack(spacing: 0) {
+                            if hasSolved {
+                                if isCorrect {
+                                    Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundColor(.green)
+                                } else if isSelected {
+                                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundColor(.red)
+                                }
+                            }
+                        }
+                        .padding(.trailing, 12)
                     }
                 }
-                .disabled(true).buttonStyle(.plain)
+                .disabled(hasSolved).buttonStyle(.plain)
 
                 if idx < question.options.count - 1 {
                     Rectangle().fill(Color.noteBorder(cs).opacity(0.22)).frame(height: 1).padding(.horizontal, 12)
@@ -483,6 +596,9 @@ private struct ReadingNoteDetailView: View {
 // MARK: - Listening Detail View
 private struct ListeningNoteDetailView: View {
     let item: ListeningIncorrectItem
+    let totalCount: Int
+    let currentIndex: Int
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     private var cs: ColorScheme { colorScheme }
@@ -496,48 +612,66 @@ private struct ListeningNoteDetailView: View {
     @State private var wasPlayingBeforeScrub: Bool = false
     @State private var audioDelegate: SimpleAudioDelegate?
 
-    @State private var showScript = true
+    // 🌟 다시 풀기를 위한 상태 변수
+    @State private var showScript = false
+    @State private var hasSolved = false
+    @State private var selectedOption: String? = nil
+
     @State private var fullscreenImageItem: IdentifiableImage?
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { proxy in
-                ScrollView {
-                    VStack(alignment: .center, spacing: 16) {
-                        Spacer()
-                        audioPlayerPanel
-                        
-                        let qText = item.question.question
-                        let qImage = item.question.imageName
-                        if !qText.isEmpty || (qImage != nil && !qImage!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                            sectionBox(title: "문  제", content: qText, imageName: qImage, accent: .noteBlue)
-                        }
-
-                        if let script = item.scriptText {
-                            scriptPanel(text: script, showScript: $showScript, accent: .noteGold)
-                        }
-                        examOptions(question: item.question)
-                        Spacer()
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .center, spacing: 16) {
+                    Spacer()
+                    audioPlayerPanel
+                    
+                    let qText = item.question.question
+                    let qImage = item.question.imageName
+                    if !qText.isEmpty || (qImage != nil && !qImage!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        sectionBox(title: "문  제", content: qText, imageName: qImage, accent: .noteBlue)
                     }
-                    .padding(16).frame(minHeight: proxy.size.height)
+
+                    // 🌟 스크립트를 선택지 위에 배치
+                    if hasSolved, let script = item.scriptText {
+                        scriptPanel(text: script, showScript: $showScript, accent: .noteGold)
+                    }
+                    
+                    examOptions(question: item.question)
+                    Spacer()
                 }
+                .padding(16).frame(minHeight: proxy.size.height)
             }
-            .background(Color.noteBackground(cs).ignoresSafeArea())
-            .navigationTitle("\(item.setNumber)회 · 음성 문항")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+        }
+        .background(Color.noteBackground(cs).ignoresSafeArea())
+        .navigationTitle("\(item.setNumber)회 · 음성 문항 (\(currentIndex + 1)/\(totalCount))")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 16) {
+                    // 🌟 다시 풀기 버튼
+                    if hasSolved {
+                        Button("다시 풀기") {
+                            withAnimation {
+                                hasSolved = false
+                                selectedOption = nil
+                                showScript = false
+                            }
+                        }
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Color.noteBlue)
+                    }
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).foregroundColor(cs == .dark ? .white.opacity(0.8) : .black.opacity(0.7)).padding(4)
                     }
                 }
             }
-            .fullScreenCover(item: $fullscreenImageItem) { item in
-                FullscreenImageView(image: item.image) { fullscreenImageItem = nil }
-            }
-            .onAppear { setupAudio() }
-            .onDisappear { stopAudio() }
         }
+        .fullScreenCover(item: $fullscreenImageItem) { item in
+            FullscreenImageView(image: item.image) { fullscreenImageItem = nil }
+        }
+        .onAppear { setupAudio() }
+        .onDisappear { stopAudio() }
     }
 
     private var audioPlayerPanel: some View {
@@ -854,27 +988,52 @@ private struct ListeningNoteDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent.opacity(cs == .dark ? 0.45 : 0.55), lineWidth: 1.5))
     }
 
+    // 🌟 사용자가 탭하여 답을 고를 수 있도록 옵션 수정
     @ViewBuilder private func examOptions(question: AudioQuestion) -> some View {
         VStack(alignment: .center, spacing: 0) {
             ForEach(Array(question.options.enumerated()), id: \.offset) { idx, option in
                 let isCorrect = option == question.answer
+                let isSelected = option == selectedOption
 
-                Button { } label: {
+                Button {
+                    if !hasSolved {
+                        withAnimation {
+                            selectedOption = option
+                            hasSolved = true
+                            showScript = true
+                        }
+                    }
+                } label: {
                     HStack(alignment: .top, spacing: 12) {
                         Text(option)
                             .font(.custom("Hiragino Sans", size: 15, relativeTo: .body))
-                            .foregroundColor(isCorrect ? Color.green : cs == .dark ? .white.opacity(0.88) : Color(red: 0.08, green: 0.06, blue: 0.12))
+                            .foregroundColor(
+                                (hasSolved && isCorrect) ? Color.green :
+                                (hasSolved && isSelected && !isCorrect) ? Color.red :
+                                (cs == .dark ? .white.opacity(0.88) : Color(red: 0.08, green: 0.06, blue: 0.12))
+                            )
                             .multilineTextAlignment(.center).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .center).fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 12)
-                    .background(isCorrect ? Color.green.opacity(0.06) : Color.clear)
+                    .background(
+                        (hasSolved && isCorrect) ? Color.green.opacity(0.06) :
+                        (hasSolved && isSelected && !isCorrect) ? Color.red.opacity(0.06) : Color.clear
+                    )
                     .contentShape(Rectangle())
                     .overlay(alignment: .trailing) {
-                        if isCorrect { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundColor(.green).padding(.trailing, 12) }
+                        HStack(spacing: 0) {
+                            if hasSolved {
+                                if isCorrect {
+                                    Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundColor(.green)
+                                } else if isSelected {
+                                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundColor(.red)
+                                }
+                            }
+                        }.padding(.trailing, 12)
                     }
                 }
-                .disabled(true).buttonStyle(.plain)
+                .disabled(hasSolved).buttonStyle(.plain)
 
                 if idx < question.options.count - 1 {
                     Rectangle().fill(Color.noteBorder(cs).opacity(0.22)).frame(height: 1).padding(.horizontal, 12)
