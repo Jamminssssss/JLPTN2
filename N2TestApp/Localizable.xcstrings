@@ -456,6 +456,7 @@
       }
     },
     "%lld회 · %lld번" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -519,7 +520,18 @@
         }
       }
     },
+    "%lld회 · %lld번 (%lld/%lld)" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld회 · %2$lld번 (%3$lld/%4$lld)"
+          }
+        }
+      }
+    },
     "%lld회 · 음성 문항" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -579,6 +591,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "第%lld回 · 語音題"
+          }
+        }
+      }
+    },
+    "%lld회 · 음성 문항 (%lld/%lld)" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld회 · 음성 문항 (%2$lld/%3$lld)"
           }
         }
       }
@@ -1672,6 +1694,7 @@
       }
     },
     "purchase.alert.restore.success" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3910,6 +3933,9 @@
           }
         }
       }
+    },
+    "다시 풀기" : {
+
     },
     "다음 문제" : {
       "localizations" : {

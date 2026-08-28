@@ -1,6 +1,7 @@
 // GrammarPracticeView.swift
 import SwiftUI
 import NaturalLanguage
+import AVFoundation
 
 // MARK: - Puzzle Piece Model
 
@@ -13,6 +14,68 @@ struct PuzzlePiece: Identifiable, Equatable {
 
 enum PuzzleState {
     case playing, correct, wrong
+}
+
+// MARK: - Japanese TTS Manager
+
+/// Wraps `AVSpeechSynthesizer` to read Japanese sentences aloud.
+final class JapaneseTTSManager: NSObject, ObservableObject {
+
+    static let shared = JapaneseTTSManager()
+
+    @Published private(set) var isSpeaking = false
+
+    private let synthesizer = AVSpeechSynthesizer()
+    private let japaneseVoice = JapaneseTTSManager.resolveJapaneseVoice()
+
+    private override init() {
+        super.init()
+        synthesizer.delegate = self
+
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: [.duckOthers])
+        try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
+    }
+
+    func speak(_ text: String, rate: Float = AVSpeechUtteranceDefaultSpeechRate * 0.85) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+
+        let utterance = AVSpeechUtterance(string: trimmed)
+        utterance.voice = japaneseVoice
+        utterance.rate = rate
+        utterance.pitchMultiplier = 1.0
+
+        synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        guard synthesizer.isSpeaking else { return }
+        synthesizer.stopSpeaking(at: .immediate)
+    }
+
+    private static func resolveJapaneseVoice() -> AVSpeechSynthesisVoice? {
+        AVSpeechSynthesisVoice(language: "ja-JP") ?? AVSpeechSynthesisVoice(language: "ja")
+    }
+}
+
+extension JapaneseTTSManager: AVSpeechSynthesizerDelegate {
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { self.isSpeaking = true }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { self.isSpeaking = false }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { self.isSpeaking = false }
+    }
 }
 
 // MARK: - Japanese Tokenizer
@@ -101,6 +164,9 @@ struct GrammarPracticeView: View {
     @State private var showPurchaseView:     Bool          = false
     private static let freeQuestionLimit    = 3
 
+    // TTS (문장 읽어주기)
+    @StateObject private var ttsManager = JapaneseTTSManager.shared
+
     @StateObject private var interstitialViewModel = InterstitialViewModel()
     @ObservedObject private var appAdManager = AppAdManager.shared
     
@@ -176,7 +242,6 @@ struct GrammarPracticeView: View {
         if placedPieces.map(\.text) == correctTokens {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { puzzleState = .correct }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { advance() }
         } else {
             puzzleState = .wrong
             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -208,6 +273,20 @@ struct GrammarPracticeView: View {
         } else {
             grammarController.showCompletionScreen = true
         }
+    }
+    
+    // MARK: - TTS Actions
+
+    private func playHintAudio() {
+        guard storeManager.isSubscribed else {
+            showPurchaseView = true
+            return
+        }
+        ttsManager.speak(currentExample.example)
+    }
+
+    private func playSuccessAudio() {
+        ttsManager.speak(currentExample.example)
     }
 
     // MARK: Body
@@ -246,8 +325,16 @@ struct GrammarPracticeView: View {
 
                                 answerArea
                                     .padding(.horizontal, hp)
-                                    .frame(height: answerH)
+                                    .frame(minHeight: answerH) // ⭐️ 고정 높이에서 minHeight로 변경 (겹침 현상 해결)
                                     .offset(x: wrongOffset)
+                                
+                                // ⭐️ Next 버튼과 Answer Area 사이의 명시적인 간격 추가
+                                if puzzleState == .correct {
+                                    nextButton
+                                        .padding(.horizontal, hp)
+                                        .padding(.top, 16)
+                                        .padding(.bottom, 5)
+                                }
 
                                 sectionLabel("단어 선택", systemImage: "hand.tap")
                                     .padding(.horizontal, hp)
@@ -302,13 +389,13 @@ struct GrammarPracticeView: View {
                 }
             }
         }
-        // 🌟 복원 후 즉시 갱신
         .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in
             grammarController.loadProgress()
             setupPuzzle()
         }
         .onDisappear {
             adTimer?.invalidate()
+            ttsManager.stop()
         }
     }
 
@@ -423,45 +510,82 @@ struct GrammarPracticeView: View {
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            
+            listenToSentenceButton
         }
         .padding(16)
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.07), radius: 8, x: 0, y: 2)
     }
+    
+    // MARK: - Listen To Sentence Button
+    
+    private var listenToSentenceButton: some View {
+        Button(action: playHintAudio) {
+            HStack(spacing: 6) {
+                Image(systemName: ttsManager.isSpeaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                    .font(.system(size: 13, weight: .medium))
+                Text("문장 듣기")
+                    .font(.system(size: 14 * fontScale, weight: .medium))
+                if !storeManager.isSubscribed {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10))
+                }
+            }
+            .foregroundColor(storeManager.isSubscribed ? .blue : .orange)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(storeManager.isSubscribed ? Color.blue.opacity(0.1) : Color.orange.opacity(0.1))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(storeManager.isSubscribed ? "문장 듣기" : "문장 듣기, 구독 필요")
+    }
 
-    // MARK: Answer Area
+    // MARK: - Answer Area
+    // ⭐️ 레이아웃 충돌 방지를 위해 ZStack을 대체하고, background/overlay로 박스를 구현했습니다.
 
     private var answerArea: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(answerBorderColor, lineWidth: puzzleState == .playing ? 1.5 : 2.5)
-                .background(RoundedRectangle(cornerRadius: 14).fill(answerFillColor))
-                .animation(.spring(response: 0.25), value: puzzleState)
-
+        VStack(alignment: .leading, spacing: 4) {
             if placedPieces.isEmpty {
                 Text("ここに単語を置いてください")
                     .font(.system(size: 16 * fontScale))
                     .foregroundColor(.gray.opacity(0.38))
                     .padding(16)
             } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    FlowLayout(spacing: 6) {
-                        ForEach(placedPieces) { piece in
-                            AnswerTile(text: piece.text, state: puzzleState, fontSize: 17 * fontScale) { remove(piece) }
+                FlowLayout(spacing: 6) {
+                    ForEach(placedPieces) { piece in
+                        AnswerTile(text: piece.text, state: puzzleState, fontSize: 17 * fontScale) { remove(piece) }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, puzzleState == .playing ? 12 : 4)
+
+                if puzzleState == .correct {
+                    HStack(spacing: 10) {
+                        feedbackLabel(icon: "checkmark.circle.fill", text: "正解！🎉", color: .green)
+                        Spacer(minLength: 0)
+                        
+                        if storeManager.isSubscribed || grammarController.currentExampleIndex < GrammarPracticeView.freeQuestionLimit {
+                            successReplayButton
                         }
                     }
-                    .padding(.horizontal, 12).padding(.top, 12)
-
-                    if puzzleState == .correct {
-                        feedbackLabel(icon: "checkmark.circle.fill", text: "正解！🎉", color: .green)
-                    } else if puzzleState == .wrong {
-                        feedbackLabel(icon: "xmark.circle.fill", text: "もう一度試してください", color: .red)
-                    }
+                } else if puzzleState == .wrong {
+                    feedbackLabel(icon: "xmark.circle.fill", text: "もう一度試してください", color: .red)
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(answerFillColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(answerBorderColor, lineWidth: puzzleState == .playing ? 1.5 : 2.5)
+        )
+        .animation(.spring(response: 0.25), value: puzzleState)
     }
 
     private var answerBorderColor: Color {
@@ -477,6 +601,44 @@ struct GrammarPracticeView: View {
         case .playing: return colorScheme == .dark ? Color(white: 0.18) : Color.blue.opacity(0.03)
         case .correct: return Color.green.opacity(0.08)
         case .wrong:   return Color.red.opacity(0.08)
+        }
+    }
+    
+    // MARK: - Success Replay Button
+
+    private var successReplayButton: some View {
+        Button(action: playSuccessAudio) {
+            Image(systemName: ttsManager.isSpeaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.green)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.green.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("문장 다시 듣기")
+        .padding(.trailing, 14)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Next Button
+
+    private var nextButton: some View {
+        Button(action: advance) {
+            HStack(spacing: 8) {
+                Text("Next Question").font(.system(size: 17 * fontScale, weight: .semibold)) // 텍스트를 이미지와 통일
+                Image(systemName: "arrow.right.circle.fill").font(.system(size: 17 * fontScale))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 15)
+            .background(
+                LinearGradient(
+                    colors: [.green, Color(red: 0.2, green: 0.7, blue: 0.45)],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: Color.green.opacity(0.35), radius: 6, x: 0, y: 3)
         }
     }
 
