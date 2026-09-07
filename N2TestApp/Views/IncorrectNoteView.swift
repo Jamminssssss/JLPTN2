@@ -281,7 +281,7 @@ struct IncorrectNoteView: View {
     }
 
     private static func fetchReadingItems(isSubscribed: Bool) -> [ReadingIncorrectItem] {
-        let notes = DatabaseManager.shared.fetchIncorrectNotes(level: "JLPTN3")
+        let notes = DatabaseManager.shared.fetchIncorrectNotes(level: "JLPTN2")
         var cache: [Int: (questions: [Question], groups: [QuestionGroup])] = [:]
         var items: [ReadingIncorrectItem] = []
 
@@ -305,7 +305,7 @@ struct IncorrectNoteView: View {
     }
 
     private static func fetchListeningItems(isSubscribed: Bool) -> [ListeningIncorrectItem] {
-        let notes = DatabaseManager.shared.fetchIncorrectNotes(level: "JLPTN3Audio")
+        let notes = DatabaseManager.shared.fetchIncorrectNotes(level: "JLPTN2Audio")
         var cache: [Int: [AudioQuestion]] = [:]
         var items: [ListeningIncorrectItem] = []
 

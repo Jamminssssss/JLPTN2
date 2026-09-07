@@ -14,7 +14,6 @@ struct PurchaseView: View {
     @State private var animateCards = false
     @State private var animatePlans = false
     @State private var isPurchasing = false
-    @State private var isEligibleForFreeTrial = false
 
     // 연간 절약률 계산 (월 $2.99 x 12 = $35.88, 연 $19.99)
     private var savingsPercent: Int {
@@ -108,9 +107,6 @@ struct PurchaseView: View {
             withAnimation(.spring(duration: 0.6, bounce: 0.3).delay(0.1)) { animateHeader = true }
             withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.3)) { animateCards = true }
             withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.5)) { animatePlans = true }
-        }
-        .task(id: selectedPlan) {
-            await refreshFreeTrialEligibility()
         }
     }
 
@@ -297,9 +293,7 @@ struct PurchaseView: View {
             .disabled(isPurchasing || storeManager.isLoading || isAlreadySubscribed)
 
             if selectedPlan == .yearly {
-                Text(isEligibleForFreeTrial
-                     ? LocalizedStringKey("purchase.free_trial_disclosure")
-                     : LocalizedStringKey("purchase.cancel_anytime"))
+                Text(LocalizedStringKey("purchase.cancel_anytime"))
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.4))
             }
@@ -310,9 +304,6 @@ struct PurchaseView: View {
     private var ctaTitle: String {
         if isAlreadySubscribed {
             return NSLocalizedString("purchase.subscribed", comment: "")
-        }
-        if isEligibleForFreeTrial {
-            return NSLocalizedString("purchase.cta_free_trial", comment: "")
         }
         return NSLocalizedString("purchase.cta_subscribe", comment: "")
     }
@@ -367,20 +358,6 @@ struct PurchaseView: View {
     }
 
     // MARK: - Actions
-
-    private func refreshFreeTrialEligibility() async {
-        // 현재 구독 중이거나 과거 구독 이력 있는 사용자 → 무료 체험 제외
-        guard !storeManager.isSubscribed, !storeManager.hasEverSubscribed else {
-            isEligibleForFreeTrial = false
-            return
-        }
-        guard let product = selectedPlan == .yearly ? storeManager.yearlyProduct : storeManager.monthlyProduct,
-              let subscription = product.subscription else {
-            isEligibleForFreeTrial = false
-            return
-        }
-        isEligibleForFreeTrial = await subscription.isEligibleForIntroOffer
-    }
 
     private func startPurchase() async {
         isPurchasing = true

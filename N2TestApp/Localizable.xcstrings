@@ -1309,6 +1309,9 @@
         }
       }
     },
+    "Next Question" : {
+
+    },
     "note.subject.listening" : {
       "localizations" : {
         "en" : {
@@ -1887,6 +1890,7 @@
       }
     },
     "purchase.cta_free_trial" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2527,6 +2531,7 @@
       }
     },
     "purchase.free_trial_disclosure" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4320,6 +4325,15 @@
           }
         }
       }
+    },
+    "문장 다시 듣기" : {
+
+    },
+    "문장 듣기" : {
+
+    },
+    "문장 듣기, 구독 필요" : {
+
     },
     "문제" : {
       "localizations" : {

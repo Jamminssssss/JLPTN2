@@ -49,6 +49,11 @@
 				Audio/n2q39.m4a = (Audio_N2_Set3, );
 				Audio/n2q4.mp3 = (Audio_N2_Set2, );
 				Audio/n2q40.m4a = (Audio_N2_Set3, );
+				Audio/n2q41.m4a = (Audio_N2_Set4, );
+				Audio/n2q42.m4a = (Audio_N2_Set4, );
+				Audio/n2q43.m4a = (Audio_N2_Set4, );
+				Audio/n2q44.m4a = (Audio_N2_Set4, );
+				Audio/n2q45.m4a = (Audio_N2_Set4, );
 				Audio/n2q5.mp3 = (Audio_N2_Set2, );
 				Audio/n2q6.mp3 = (Audio_N2_Set2, );
 				Audio/n2q7.mp3 = (Audio_N2_Set2, );
@@ -137,6 +142,9 @@
 				KnownAssetTags = (
 					Audio_N2_Set2,
 					Audio_N2_Set3,
+					Audio_N2_Set4,
+					jlptn2_audio_set4,
+					jlptn2_reading_set4,
 				);
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 2600;
@@ -340,7 +348,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 2.3.4;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -382,7 +390,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 2.3.4;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

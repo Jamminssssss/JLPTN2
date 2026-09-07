@@ -55,6 +55,7 @@ struct ListeningView: View {
     @State private var set1Progress: Double = 0
     @State private var set2Progress: Double = 0
     @State private var set3Progress: Double = 0
+    @State private var set4Progress: Double = 0
 
     // 🌟 재생 속도 관리 변수 추가
     @State private var playbackRate: Float = 1.0
@@ -290,10 +291,10 @@ struct ListeningView: View {
     private func setSelectionGrid(geo: GeometryProxy) -> some View {
         let iconSize: CGFloat = min(geo.size.width * 0.22, 100)
         let lockSize: CGFloat = iconSize * 0.45
-        let progresses = [set1Progress, set2Progress, set3Progress]
+        let progresses = [set1Progress, set2Progress, set3Progress, set4Progress]
         
         VStack(spacing: 0) {
-            ForEach(1...3, id: \.self) { setNum in
+            ForEach(1...4, id: \.self) { setNum in
                 let unlocked = storeManager.isPremium || setNum == 1
                 let prog = setNum <= progresses.count ? progresses[setNum - 1] : 0.0
                 
@@ -305,7 +306,7 @@ struct ListeningView: View {
                             selectedSet = setNum
                             loadQuestionsForSet(setNum)
                         } else {
-                            // 2, 3회차는 ODR 다운로드
+                            // 2, 3, 4회차는 ODR 다운로드
                             isDownloadingODR = true
                             ODRManager.shared.downloadResource(tag: "Audio_N2_Set\(setNum)") { success in
                                 isDownloadingODR = false
@@ -342,7 +343,7 @@ struct ListeningView: View {
                     .frame(maxWidth: .infinity).frame(height: max(geo.size.height * 0.44, 260))
                 }
                 .buttonStyle(.plain)
-                if setNum < 3 { Divider().background(Color.gray.opacity(0.3)) }
+                if setNum < 4 { Divider().background(Color.gray.opacity(0.3)) }
             }
         }
     }
@@ -708,6 +709,7 @@ struct ListeningView: View {
         set1Progress = prog(set: 1, group: "Group2_set1")
         set2Progress = prog(set: 2, group: "Group2_set2")
         set3Progress = prog(set: 3, group: "Group2_set3")
+        set4Progress = prog(set: 4, group: "Group2_set4")
     }
 
     private func setupAudio() {

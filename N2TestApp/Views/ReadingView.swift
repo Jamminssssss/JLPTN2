@@ -69,6 +69,7 @@ struct ReadingView: View {
     @State private var set1Progress: Double = 0
     @State private var set2Progress: Double = 0
     @State private var set3Progress: Double = 0
+    @State private var set4Progress: Double = 0
 
     @ObservedObject private var appAdManager = AppAdManager.shared
 
@@ -187,8 +188,8 @@ struct ReadingView: View {
                                     .padding(.horizontal, 8)
                                     ScrollView {
                                         // 3개 세트만 전달
-                                        setSelectionGrid(geo: geo, maxSets: 3,
-                                                         progresses: [set1Progress, set2Progress, set3Progress],
+                                        setSelectionGrid(geo: geo, maxSets: 4,
+                                                         progresses: [set1Progress, set2Progress, set3Progress, set4Progress],
                                                          icon: "book.fill",
                                                          unlockedColor: Color.examGreen)
                                     }
@@ -889,6 +890,11 @@ struct ReadingView: View {
         let s3 = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group1_set3")
         let g3 = DataLoader.groupQuestions(q3)
         set3Progress = g3.isEmpty ? 0 : Double(min(s3, max(g3.count - 1, 0))) / Double(max(g3.count, 1))
+
+        let q4 = DataLoader.load(set: 4)
+        let s4 = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group1_set4")
+        let g4 = DataLoader.groupQuestions(q4)
+        set4Progress = g4.isEmpty ? 0 : Double(min(s4, max(g4.count - 1, 0))) / Double(max(g4.count, 1))
     }
 
     private func resetToFirstQuestion() {
@@ -910,3 +916,4 @@ struct ReadingView: View {
         isTabBarHidden = false; dismiss()
     }
 }
+
