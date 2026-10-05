@@ -1,0 +1,9 @@
+{
+  "id" : "b1daddd9-b257-416d-83b7-545fdca56484",
+  "targets" : [
+    {
+      "id" : "142373AB-AD76-471B-A1EF-8F759D03419B",
+      "name" : "N2TestApp"
+    }
+  ]
+}

@@ -20,26 +20,14 @@ struct PracticeWordView: View {
     @ObservedObject private var appAdManager = AppAdManager.shared
     @State private var adTimer: Timer?
 
-    @State private var strokeAnimationDone = false
     @State private var penColor: Color = Color(UIColor.label)
     @State private var showColorPicker = false
 
     private var isWritingEntitled: Bool { storeManager.isSubscribed || wordController.currentWordIndex < 3 }
 
-    private var currentLanguageCode: String {
-        Locale.current.language.languageCode?.identifier ?? "en"
-    }
-
     private func getLocalizedMeaning() -> String? {
-        if currentLanguageCode == "ja" { return nil }
-        switch currentLanguageCode {
-        case "ko":                           return currentWord.meanings["ko"]
-        case "zh", "zh-Hans", "zh-Hant":    return currentWord.meanings["zh-Hans"]
-        case "vi":                           return currentWord.meanings["vi"]
-        case "th":                           return currentWord.meanings["th"]
-        case "fr":                           return currentWord.meanings["fr"]
-        default:                             return currentWord.meanings["en"]
-        }
+        guard LocalizedContent.currentLanguageCode != "ja" else { return nil }
+        return LocalizedContent.value(in: currentWord.meanings)
     }
 
     var currentWord: Word {
@@ -60,7 +48,6 @@ struct PracticeWordView: View {
 
     private func resetForNewWord() {
         canvasView.drawing = PKDrawing()
-        strokeAnimationDone = false
     }
 
     // MARK: - Body
@@ -79,7 +66,7 @@ struct PracticeWordView: View {
                     if wordController.showCompletionScreen {
                         completionCanvasSection(geometry: geometry)
                     } else if wordController.showGuide {
-                        strokeGuideView(geometry: geometry)
+                        strokeGuideView()
                     } else {
                         writingPracticeSection(geometry: geometry)
                     }
@@ -125,59 +112,70 @@ struct PracticeWordView: View {
     // MARK: - 가이드 화면
 
     @ViewBuilder
-    private func strokeGuideView(geometry: GeometryProxy) -> some View {
-        let isPortrait = geometry.size.height > geometry.size.width
+    private func strokeGuideView() -> some View {
+        GeometryReader { geometry in
+            let isPortrait = geometry.size.height > geometry.size.width
+            let characterCount = currentWord.kanji.count
+            let columns = max(1, min(characterCount, isPortrait ? 3 : 5))
+            let rows = max(1, (characterCount + columns - 1) / columns)
+            let availableWidth = max(1, geometry.size.width - 32)
+            let gridGap: CGFloat = 10
+            let totalGridGap = CGFloat(columns - 1) * gridGap
+            let usableGridWidth = max(1, availableWidth - totalGridGap)
+            let cellWidth = usableGridWidth / CGFloat(columns)
+            let cellSize = min(cellWidth, isPortrait ? 190 : 160)
+            let guideHeight = max(1, cellSize * CGFloat(rows) + CGFloat(rows - 1) * gridGap)
 
-        ZStack {
-            Color.black.ignoresSafeArea()
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 20) {
-                    Spacer(minLength: 20)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: isPortrait ? 16 : 8) {
+                        Spacer(minLength: 12)
 
-                    Text(currentWord.kanji)
-                        .font(.system(size: (horizontalSizeClass == .regular ? 160 : 120) * fontScale))
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding()
+                        StrokeOrderGuideView(word: currentWord.kanji, columns: columns)
+                            .frame(width: availableWidth, height: guideHeight)
+                            .accessibilityLabel("\(currentWord.kanji) 획순 안내")
 
-                    if let meaning = getLocalizedMeaning() {
-                        Text(meaning)
-                            .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-
-                    Spacer(minLength: 20)
-
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.35)) {
-                            wordController.showGuide = false
+                        if let meaning = getLocalizedMeaning() {
+                            Text(meaning)
+                                .font(.system(size: (horizontalSizeClass == .regular ? 28 : 22) * fontScale))
+                                .foregroundColor(.gray)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
                         }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "pencil")
-                            Text("じゃあ、書いてみて。")
-                                .fontWeight(.semibold)
+
+                        Spacer(minLength: 12)
+
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                wordController.showGuide = false
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "pencil")
+                                Text("じゃあ、書いてみて。")
+                                    .fontWeight(.semibold)
+                            }
+                            .font(.system(size: isPortrait ? 17 : 15))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 28)
+                            .padding(.vertical, 13)
+                            .background(Color.white)
+                            .cornerRadius(24)
                         }
-                        .font(.system(size: isPortrait ? 17 : 15))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 28)
-                        .padding(.vertical, 13)
-                        .background(Color.white)
-                        .cornerRadius(24)
+                        .padding(.bottom, isPortrait ? 32 : 16)
                     }
-                    .padding(.bottom, isPortrait ? 32 : 16)
+                    .frame(minHeight: geometry.size.height)
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(minHeight: geometry.size.height)
             }
-        }
-        .transition(.opacity)
-        .zIndex(2)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                speakText(currentWord.kanji)
+            .transition(.opacity)
+            .zIndex(2)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    speakText(currentWord.kanji)
+                }
             }
         }
     }
@@ -193,30 +191,30 @@ struct PracticeWordView: View {
 
         VStack(spacing: 0) {
             ZStack {
-                ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                    CanvasView(canvasView: $canvasView,
-                               colorScheme: colorScheme,
-                               isDrawingEnabled: isWritingEntitled,
-                               isEraser: wordController.isEraser,
-                               penColor: penColor)
-                        .frame(width: canvasSize.width, height: canvasSize.height)
-                        .cornerRadius(10)
-                        .shadow(radius: 5)
-                        .overlay(
-                            BackgroundCharactersOverlay(
-                                text: currentWord.kanji,
-                                isPortrait: isPortrait,
-                                canvasSize: canvasSize,
-                                fontScale: fontScale
-                            )
-                            .allowsHitTesting(false)
+                CanvasView(canvasView: $canvasView,
+                           colorScheme: colorScheme,
+                           isDrawingEnabled: isWritingEntitled,
+                           isEraser: wordController.isEraser,
+                           penColor: penColor)
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .cornerRadius(10)
+                    .shadow(radius: 5)
+                    .overlay(
+                        BackgroundCharactersOverlay(
+                            text: currentWord.kanji,
+                            isPortrait: isPortrait,
+                            canvasSize: canvasSize,
+                            fontScale: fontScale
                         )
-                }
+                        .frame(width: canvasSize.width, height: canvasSize.height)
+                        .allowsHitTesting(false)
+                    )
 
                 if !isWritingEntitled {
                     lockOverlay(isPortrait: isPortrait)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.top, isPortrait ? 16 : 8)
 
             bottomControlsBar(isPortrait: isPortrait, canvasSize: canvasSize)
@@ -233,27 +231,26 @@ struct PracticeWordView: View {
             : CGSize(width: geometry.size.width * 0.95, height: geometry.size.height * 0.8)
 
         VStack(spacing: 0) {
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                CanvasView(canvasView: $canvasView,
-                           colorScheme: colorScheme,
-                           isDrawingEnabled: isWritingEntitled,
-                           isEraser: wordController.isEraser,
-                           penColor: penColor)
-                    .frame(width: canvasSize.width, height: canvasSize.height)
-                    .cornerRadius(10)
-                    .shadow(radius: 5)
-                    .overlay(
-                        BackgroundCharactersOverlay(
-                            text: currentWord.kanji,
-                            isPortrait: isPortrait,
-                            canvasSize: canvasSize,
-                            fontScale: fontScale
-                        )
-                        .allowsHitTesting(false)
+            CanvasView(canvasView: $canvasView,
+                       colorScheme: colorScheme,
+                       isDrawingEnabled: isWritingEntitled,
+                       isEraser: wordController.isEraser,
+                       penColor: penColor)
+                .frame(width: canvasSize.width, height: canvasSize.height)
+                .cornerRadius(10)
+                .shadow(radius: 5)
+                .overlay(
+                    BackgroundCharactersOverlay(
+                        text: currentWord.kanji,
+                        isPortrait: isPortrait,
+                        canvasSize: canvasSize,
+                        fontScale: fontScale
                     )
-            }
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .allowsHitTesting(false)
+                )
             .padding(.horizontal)
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack(spacing: isPortrait ? 16 : 12) {
                 if isWritingEntitled {
@@ -263,10 +260,6 @@ struct PracticeWordView: View {
                     }
                     circleButton(icon: "eye", isPortrait: isPortrait) {
                         withAnimation(.easeInOut(duration: 0.3)) { wordController.showGuide = true }
-                        DispatchQueue.main.async { speakText(currentWord.kanji) }
-                        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                            withAnimation(.easeInOut(duration: 0.3)) { wordController.showGuide = false }
-                        }
                     }
                     toolButton(icon: "pencil", isActive: !wordController.isEraser, isPortrait: isPortrait) {
                         wordController.isEraser = false
@@ -305,7 +298,6 @@ struct PracticeWordView: View {
             circleButton(icon: "eye", isPortrait: isPortrait) {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     wordController.showGuide = true
-                    strokeAnimationDone = false
                 }
             }
             toolButton(icon: "pencil", isActive: !wordController.isEraser, isPortrait: isPortrait) {
@@ -574,8 +566,8 @@ struct BackgroundCharactersOverlay: View {
             if isPortrait {
                 if text.count <= 2 {
                     HStack(spacing: 20) {
-                        ForEach(Array(text), id: \.self) { char in
-                            Text(String(char))
+                        ForEach(Array(text.enumerated()), id: \.offset) { item in
+                            Text(String(item.element))
                                 .font(.system(size: min(canvasSize.width, canvasSize.height) * 0.4 * fontScale))
                                 .fontWeight(.bold)
                                 .foregroundColor(guideColor)
@@ -583,8 +575,8 @@ struct BackgroundCharactersOverlay: View {
                     }
                 } else {
                     VStack(spacing: 10) {
-                        ForEach(Array(text), id: \.self) { char in
-                            Text(String(char))
+                        ForEach(Array(text.enumerated()), id: \.offset) { item in
+                            Text(String(item.element))
                                 .font(.system(size: min(canvasSize.width, canvasSize.height) * 0.3 * fontScale))
                                 .fontWeight(.bold)
                                 .foregroundColor(guideColor)
@@ -593,8 +585,8 @@ struct BackgroundCharactersOverlay: View {
                 }
             } else {
                 HStack(spacing: 30) {
-                    ForEach(Array(text), id: \.self) { char in
-                        Text(String(char))
+                    ForEach(Array(text.enumerated()), id: \.offset) { item in
+                        Text(String(item.element))
                             .font(.system(size: min(canvasSize.width, canvasSize.height) * 0.5 * fontScale))
                             .fontWeight(.bold)
                             .foregroundColor(guideColor)

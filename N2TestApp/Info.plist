@@ -2,9 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSUserTrackingUsageDescription</key>
-    <string>Used to provide a better advertising experience.</string>
-    <key>CFBundleLocalizations</key>
+	<key>AD_APP_OPEN_ID</key>
+	<string>$(AD_APP_OPEN_ID)</string>
+	<key>AD_BANNER_BOTTOM_ID</key>
+	<string>$(AD_BANNER_BOTTOM_ID)</string>
+	<key>AD_BANNER_TOP_ID</key>
+	<string>$(AD_BANNER_TOP_ID)</string>
+	<key>AD_INTERSTITIAL_ID</key>
+	<string>$(AD_INTERSTITIAL_ID)</string>
+	<key>CFBundleLocalizations</key>
 	<array>
 		<string>ko</string>
 		<string>en</string>
@@ -14,18 +20,10 @@
 		<string>th</string>
 		<string>fr</string>
 	</array>
-    <key>GADApplicationIdentifier</key>
-    <string>$(AD_APP_ID)</string>
-    <key>GADIsAdManagerApp</key>
-    <false/>
-    <key>AD_APP_OPEN_ID</key>
-    <string>$(AD_APP_OPEN_ID)</string>
-    <key>AD_BANNER_TOP_ID</key>
-    <string>$(AD_BANNER_TOP_ID)</string>
-    <key>AD_BANNER_BOTTOM_ID</key>
-    <string>$(AD_BANNER_BOTTOM_ID)</string>
-    <key>AD_INTERSTITIAL_ID</key>
-    <string>$(AD_INTERSTITIAL_ID)</string>
+	<key>GADApplicationIdentifier</key>
+	<string>$(AD_APP_ID)</string>
+	<key>GADIsAdManagerApp</key>
+	<false/>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

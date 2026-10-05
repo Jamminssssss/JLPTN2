@@ -178,26 +178,14 @@ struct GrammarPracticeView: View {
         grammarController.examples[grammarController.currentExampleIndex]
     }
 
-    private var currentLanguageCode: String {
-        Locale.current.language.languageCode?.identifier ?? "en"
-    }
-
     private func localizedMeaning() -> String? {
-        guard currentLanguageCode != "ja" else { return nil }
-        switch currentLanguageCode {
-        case "ko":                     return currentExample.meanings["ko"]
-        case "zh","zh-Hans","zh-Hant": return currentExample.meanings["zh-Hans"]
-        default:                       return currentExample.meanings[currentLanguageCode] ?? currentExample.meanings["en"]
-        }
+        guard LocalizedContent.currentLanguageCode != "ja" else { return nil }
+        return LocalizedContent.value(in: currentExample.meanings)
     }
 
     private func localizedTranslation() -> String? {
-        guard currentLanguageCode != "ja" else { return nil }
-        switch currentLanguageCode {
-        case "ko":                     return currentExample.translations["ko"]
-        case "zh","zh-Hans","zh-Hant": return currentExample.translations["zh-Hans"] ?? currentExample.translations["en"]
-        default:                       return currentExample.translations[currentLanguageCode] ?? currentExample.translations["en"]
-        }
+        guard LocalizedContent.currentLanguageCode != "ja" else { return nil }
+        return LocalizedContent.value(in: currentExample.translations)
     }
 
     // MARK: Puzzle Logic

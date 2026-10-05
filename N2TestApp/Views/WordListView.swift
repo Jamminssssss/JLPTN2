@@ -140,26 +140,8 @@ struct WordRow: View {
     }
     
     private func localizedMeaning() -> String? {
-        let languageCode: String = {
-            if #available(iOS 16.0, *) {
-                return Locale.current.language.languageCode?.identifier ?? "en"
-            } else {
-                return Locale.current.languageCode ?? "en"
-            }
-        }()
-        
-        switch languageCode {
-        case "ja":
-            return nil // 한국어는 의미 생략
-        case "en":
-            return word.meanings["en"]
-        case "ko":
-            return word.meanings["ko"]
-        case "zh":
-            return word.meanings["zh-Hans"] ?? word.meanings["zh-Hant"]
-        default:
-            return word.meanings["en"] // fallback
-        }
+        guard LocalizedContent.currentLanguageCode != "ja" else { return nil }
+        return LocalizedContent.value(in: word.meanings)
     }
     
     private var isIPad: Bool {
