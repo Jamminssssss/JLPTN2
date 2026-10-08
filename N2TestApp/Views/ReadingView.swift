@@ -70,6 +70,7 @@ struct ReadingView: View {
     @State private var set2Progress: Double = 0
     @State private var set3Progress: Double = 0
     @State private var set4Progress: Double = 0
+    @State private var set5Progress: Double = 0
 
     @ObservedObject private var appAdManager = AppAdManager.shared
 
@@ -187,9 +188,8 @@ struct ReadingView: View {
                                     }
                                     .padding(.horizontal, 8)
                                     ScrollView {
-                                        // 3개 세트만 전달
-                                        setSelectionGrid(geo: geo, maxSets: 4,
-                                                         progresses: [set1Progress, set2Progress, set3Progress, set4Progress],
+                                        setSelectionGrid(geo: geo, maxSets: 5,
+                                                         progresses: [set1Progress, set2Progress, set3Progress, set4Progress, set5Progress],
                                                          icon: "book.fill",
                                                          unlockedColor: Color.examGreen)
                                     }
@@ -416,12 +416,12 @@ struct ReadingView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
 
-            // 지문 박스
-            if let qText = question.question, !qText.isEmpty {
-                passageBox(text: qText, underline: question.underline,
-                           imageName: question.imageName, geoWidth: geoWidth)
-            } else if question.imageName != nil {
-                passageBox(text: nil, underline: question.underline,
+            let sections = StudyPromptSections(reading: question)
+            if let text = sections.question {
+                questionBox(text: text, underline: question.underline)
+            }
+            if sections.passage != nil || question.imageName != nil {
+                passageBox(text: sections.passage, underline: question.underline,
                            imageName: question.imageName, geoWidth: geoWidth)
             }
 
@@ -450,9 +450,16 @@ struct ReadingView: View {
 
         VStack(alignment: .leading, spacing: 16) {
 
-            // 공유 지문
-            if let passage = group.sharedPassage, !passage.isEmpty {
-                passageBox(text: passage, underline: group.sharedUnderline,
+            let shared = StudyPromptSections(text: group.sharedPassage)
+            let hasSharedText = group.questions.allSatisfy {
+                $0.question == group.questions.first?.question
+            }
+            if hasSharedText, let text = shared.question {
+                questionBox(text: text, underline: group.sharedUnderline)
+            }
+            if (hasSharedText && shared.passage != nil) || group.sharedImageName != nil {
+                passageBox(text: hasSharedText ? shared.passage : nil,
+                           underline: group.sharedUnderline,
                            imageName: group.sharedImageName, geoWidth: geoWidth)
             }
 
@@ -466,25 +473,22 @@ struct ReadingView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
 
-                    HStack(alignment: .top, spacing: 10) {
-                        ZStack {
-                            Circle().fill(Color.examGreen).frame(width: 22, height: 22)
-                            Text("\(idx + 1)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.top, 1)
+                    Text("문항 \(qIdx + 1)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Color.examBlue)
 
-                        let subText = q.subQuestion ?? q.question ?? ""
-                        if !subText.isEmpty {
-                            Text(AttributedString(applyUnderline(to: subText, underlinedWords: q.underline)))
-                                .font(.custom("Hiragino Sans", // Japanese Font Preserved
-                                              size: 14 * fontScale, relativeTo: .body))
-                                .foregroundColor(cs == .dark ? .white : .black.opacity(0.85))
-                                .fixedSize(horizontal: false, vertical: true)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
+                    let subText = q.subQuestion?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let sections = hasSharedText
+                        ? StudyPromptSections(text: subText.flatMap { Int($0) == nil ? $0 : nil })
+                        : StudyPromptSections(reading: q)
+                    if let text = sections.question,
+                       !hasSharedText || text != shared.question {
+                        questionBox(text: text, underline: q.underline, number: qIdx + 1)
+                    }
+                    if let passage = sections.passage,
+                       !hasSharedText || passage != shared.passage {
+                        passageBox(text: passage, underline: q.underline,
+                                   imageName: nil, geoWidth: geoWidth)
                     }
 
                     if allAnswered {
@@ -515,6 +519,29 @@ struct ReadingView: View {
         }
     }
 
+    // MARK: - Question Box
+
+    private func questionBox(text: String, underline: [String], number: Int? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(number.map { "문제 \($0)" } ?? "문제")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Color.examBlue)
+            Text(AttributedString(applyUnderline(to: text, underlinedWords: underline)))
+                .font(.custom("Hiragino Sans", size: 15 * fontScale, relativeTo: .body))
+                .foregroundColor(cs == .dark ? .white.opacity(0.92) : .black.opacity(0.88))
+                .lineSpacing(6)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.examBlue.opacity(cs == .dark ? 0.14 : 0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4)
+            .stroke(Color.examBlue.opacity(0.45), lineWidth: 1.5))
+    }
+
     // MARK: - Passage Box  ──────────────────────────────────────────────────
 
     @ViewBuilder
@@ -538,8 +565,8 @@ struct ReadingView: View {
                                   size: 15 * fontScale, relativeTo: .body))
                     .foregroundColor(cs == .dark ? .white.opacity(0.88) : Color(red: 0.08, green: 0.06, blue: 0.12))
                     .lineSpacing(9)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
             }
@@ -874,7 +901,7 @@ struct ReadingView: View {
         selectedAnswer = nil; showAnswer = false; showExplanation = false
     }
 
-    // MARK: - refreshSetProgress() (set1 ~ set3)
+    // MARK: - refreshSetProgress() (set1 ~ set5)
     private func refreshSetProgress() {
         let q1 = DataLoader.load(set: 1)
         let s1 = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group1_set1")
@@ -895,6 +922,11 @@ struct ReadingView: View {
         let s4 = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group1_set4")
         let g4 = DataLoader.groupQuestions(q4)
         set4Progress = g4.isEmpty ? 0 : Double(min(s4, max(g4.count - 1, 0))) / Double(max(g4.count, 1))
+
+        let q5 = DataLoader.load(set: 5)
+        let s5 = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group1_set5")
+        let g5 = DataLoader.groupQuestions(q5)
+        set5Progress = g5.isEmpty ? 0 : Double(min(s5, max(g5.count - 1, 0))) / Double(max(g5.count, 1))
     }
 
     private func resetToFirstQuestion() {
@@ -916,4 +948,3 @@ struct ReadingView: View {
         isTabBarHidden = false; dismiss()
     }
 }
-

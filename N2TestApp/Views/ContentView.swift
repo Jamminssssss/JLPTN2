@@ -79,10 +79,6 @@ struct ContentView: View {
             }
 
             Task {
-                while storeManager.products.isEmpty && !storeManager.isLoading {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                }
-
                 await storeManager.updateCustomerProductStatus()
                 try? await Task.sleep(nanoseconds: 500_000_000)
 

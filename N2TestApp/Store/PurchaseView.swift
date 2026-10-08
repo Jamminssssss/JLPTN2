@@ -16,24 +16,32 @@ struct PurchaseView: View {
     @State private var isPurchasing = false
 
     // 연간 절약률 계산 (월 $2.99 x 12 = $35.88, 연 $19.99)
-    private var savingsPercent: Int {
+    private var savingsPercent: Int? {
         guard
             let monthly = storeManager.monthlyProduct?.price,
             let yearly = storeManager.yearlyProduct?.price
-        else { return 44 }
+        else { return nil }
         let annualMonthly = monthly * 12
-        guard annualMonthly > 0 else { return 44 }
+        guard annualMonthly > 0 else { return nil }
         let savings = (annualMonthly - yearly) / annualMonthly * 100
-        return Int(truncating: savings as NSDecimalNumber)
+        let percent = Int(truncating: savings as NSDecimalNumber)
+        return percent > 0 ? percent : nil
     }
 
     private var monthlyEquivalentFromYearly: String {
-        guard let yearly = storeManager.yearlyProduct?.price else { return "$1.67" }
+        guard let yearlyProduct = storeManager.yearlyProduct else { return "" }
+        let yearly = yearlyProduct.price
         let perMonth = yearly / 12
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.currencyCode = storeManager.yearlyProduct?.priceFormatStyle.currencyCode ?? "USD"
-        return formatter.string(from: perMonth as NSDecimalNumber) ?? "$1.67"
+        formatter.locale = yearlyProduct.priceFormatStyle.locale
+        formatter.currencyCode = yearlyProduct.priceFormatStyle.currencyCode
+        guard let price = formatter.string(from: perMonth as NSDecimalNumber) else { return "" }
+        return String(format: NSLocalizedString("purchase.plan.monthly_equivalent", comment: ""), price)
+    }
+
+    private var selectedProduct: Product? {
+        selectedPlan == .yearly ? storeManager.yearlyProduct : storeManager.monthlyProduct
     }
 
     var body: some View {
@@ -84,6 +92,8 @@ struct PurchaseView: View {
                         // 플랜 선택 카드
                         planSelectionSection
 
+                        productAvailabilitySection
+
                         // 구독 CTA 버튼
                         ctaButton
 
@@ -107,6 +117,14 @@ struct PurchaseView: View {
             withAnimation(.spring(duration: 0.6, bounce: 0.3).delay(0.1)) { animateHeader = true }
             withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.3)) { animateCards = true }
             withAnimation(.spring(duration: 0.6, bounce: 0.2).delay(0.5)) { animatePlans = true }
+        }
+        .task {
+            if storeManager.products.isEmpty {
+                await storeManager.requestProducts()
+            }
+        }
+        .onChange(of: storeManager.isSubscribed) { _, isSubscribed in
+            if isSubscribed { dismiss() }
         }
     }
 
@@ -221,11 +239,11 @@ struct PurchaseView: View {
             // 연간 플랜 (추천)
             PlanCard(
                 isSelected: selectedPlan == .yearly,
-                badge: "\(savingsPercent)% OFF",
+                badge: savingsPercent.map { "\($0)% OFF" },
                 badgeColor: .orange,
                 title: LocalizedStringKey("purchase.plan.yearly"),
-                priceMain: storeManager.yearlyProduct?.displayPrice ?? "$19.99",
-                priceSub: "\(monthlyEquivalentFromYearly) / mo",
+                priceMain: storeManager.yearlyProduct?.displayPrice ?? "—",
+                priceSub: monthlyEquivalentFromYearly,
                 tag: LocalizedStringKey("purchase.plan.recommended"),
                 isSubscribed: storeManager.activeSubscriptionType == .yearly
             ) {
@@ -238,7 +256,7 @@ struct PurchaseView: View {
                 badge: nil,
                 badgeColor: .blue,
                 title: LocalizedStringKey("purchase.plan.monthly"),
-                priceMain: storeManager.monthlyProduct?.displayPrice ?? "$2.99",
+                priceMain: storeManager.monthlyProduct?.displayPrice ?? "—",
                 priceSub: LocalizedStringKey("purchase.plan.monthly_sub"),
                 tag: nil,
                 isSubscribed: storeManager.activeSubscriptionType == .monthly
@@ -251,6 +269,27 @@ struct PurchaseView: View {
     }
 
     // MARK: - CTA Button
+    @ViewBuilder
+    private var productAvailabilitySection: some View {
+        if storeManager.isLoading && !isPurchasing {
+            ProgressView(LocalizedStringKey("purchase.products.loading"))
+                .tint(.white)
+                .foregroundColor(.white.opacity(0.7))
+        } else if let message = storeManager.errorMessage {
+            VStack(spacing: 10) {
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.8))
+                    .multilineTextAlignment(.center)
+                Button(LocalizedStringKey("purchase.products.retry")) {
+                    Task { await storeManager.requestProducts() }
+                }
+                .foregroundColor(.white)
+                .disabled(isPurchasing)
+            }
+        }
+    }
+
     private var ctaButton: some View {
         VStack(spacing: 10) {
             Button(action: {
@@ -290,7 +329,7 @@ struct PurchaseView: View {
                 .scaleEffect(isPurchasing ? 0.97 : 1.0)
                 .animation(.spring(duration: 0.2), value: isPurchasing)
             }
-            .disabled(isPurchasing || storeManager.isLoading || isAlreadySubscribed)
+            .disabled(isPurchasing || storeManager.isLoading || isAlreadySubscribed || selectedProduct == nil)
 
             if selectedPlan == .yearly {
                 Text(LocalizedStringKey("purchase.cancel_anytime"))
@@ -360,18 +399,32 @@ struct PurchaseView: View {
     // MARK: - Actions
 
     private func startPurchase() async {
+        guard !isPurchasing, !storeManager.isLoading, selectedProduct != nil else { return }
         isPurchasing = true
         defer { isPurchasing = false }
         do {
+            let outcome: SubscriptionPurchaseOutcome
             if selectedPlan == .yearly {
-                _ = try await storeManager.purchaseYearlySubscription()
+                outcome = try await storeManager.purchaseYearlySubscription()
             } else {
-                _ = try await storeManager.purchaseMonthlySubscription()
+                outcome = try await storeManager.purchaseMonthlySubscription()
             }
-            
-            // ✅ 결제 성공 시 뷰 닫고 자동으로 원래 화면 복귀
-            dismiss()
-            
+            switch outcome {
+            case .success, .alreadySubscribed:
+                if storeManager.isSubscribed {
+                    dismiss()
+                } else {
+                    alertTitle = NSLocalizedString("purchase.alert.pending.title", comment: "")
+                    alertMessage = NSLocalizedString("purchase.alert.pending.message", comment: "")
+                    showAlert = true
+                }
+            case .cancelled:
+                break
+            case .pending:
+                alertTitle = NSLocalizedString("purchase.alert.pending.title", comment: "")
+                alertMessage = NSLocalizedString("purchase.alert.pending.message", comment: "")
+                showAlert = true
+            }
         } catch {
             alertTitle = NSLocalizedString("purchase.alert.failed.title", comment: "")
             alertMessage = error.localizedDescription

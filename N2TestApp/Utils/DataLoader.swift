@@ -115,16 +115,17 @@ extension DataLoader {
             return []
         }
 
-        let rows = content
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .dropFirst() // header 제거
+        let csvRows = QuizCSVParser.rows(from: content)
+        guard let header = csvRows.first else { return [] }
+        let rows = csvRows.dropFirst()
 
         var questions: [Question] = []
 
-        for (index, row) in rows.enumerated() {
-            let columns = parseCSVLine(row)
+        for (index, columns) in rows.enumerated() {
+            guard columns.count == header.count else {
+                print("⚠️ Reading row \(index + 2) has \(columns.count) columns; expected \(header.count)")
+                continue
+            }
 
             // 최소 6개 컬럼 필요 (question, 4 options, answer)
             guard columns.count >= 6 else {
@@ -147,6 +148,10 @@ extension DataLoader {
             ].filter { !$0.isEmpty }
 
             let answer = columns[5].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard options.count >= 2, options.contains(answer) else {
+                print("⚠️ Reading row \(index + 2) has invalid options or answer")
+                continue
+            }
 
             // imageName (index 6)
             let imageName = columns.count > 6
@@ -231,27 +236,6 @@ extension DataLoader {
         print("✅ \(fileName)에서 \(questions.count)개 문제 로드 완료")
         return questions
     }
-}
-
-// MARK: - CSV Parser
-private func parseCSVLine(_ line: String) -> [String] {
-    var result: [String] = []
-    var current = ""
-    var insideQuotes = false
-
-    for char in line {
-        if char == "\"" {
-            insideQuotes.toggle()
-        } else if char == "," && !insideQuotes {
-            result.append(current)
-            current = ""
-        } else {
-            current.append(char)
-        }
-    }
-
-    result.append(current)
-    return result
 }
 
 // MARK: - String Helper

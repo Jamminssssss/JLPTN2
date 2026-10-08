@@ -606,6 +606,7 @@ private struct ListeningNoteDetailView: View {
     @State private var isPlaying: Bool = false
     @State private var audioProgress: Float = 0
     @State private var audioPlayer: AVAudioPlayer?
+    @State private var audioPreparationID = UUID()
     @State private var updateTimer: Timer?
     @State private var endTimeTimer: Timer?
     @State private var isScrubbing: Bool = false
@@ -806,39 +807,30 @@ private struct ListeningNoteDetailView: View {
         }
     }
 
-    private func configureAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [])
-            try session.setActive(true)
-        } catch { print("오디오 세션 설정 실패: \(error)") }
-    }
-
     private func setupAudio() {
+        stopAudio()
+        audioPlayer = nil
         let name = (item.question.audioFileName as NSString).deletingPathExtension
         let ext = (item.question.audioFileName as NSString).pathExtension.isEmpty ? "mp3" : (item.question.audioFileName as NSString).pathExtension
         guard let url = Bundle.main.url(forResource: name, withExtension: ext) else { return }
-        do {
-            configureAudioSession()
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.prepareToPlay()
-            if let s = item.question.startTime, let e = item.question.endTime, e > s {
-                audioPlayer?.currentTime = s
-                setupEndTimeTimer()
-            } else {
-                audioPlayer?.currentTime = 0
-                endTimeTimer?.invalidate()
+        let requestID = UUID()
+        audioPreparationID = requestID
+        AudioPlayerPreparation.prepare(url: url, startTime: item.question.startTime ?? 0) { result in
+            guard audioPreparationID == requestID else { return }
+            switch result {
+            case .success(let player):
+                audioDelegate = SimpleAudioDelegate {
+                    self.isPlaying = false
+                    self.audioProgress = 0
+                    if let start = self.item.question.startTime { self.audioPlayer?.currentTime = start }
+                    else { self.audioPlayer?.currentTime = 0 }
+                }
+                player.delegate = audioDelegate
+                audioPlayer = player
+            case .failure(let error):
+                print("오디오 플레이어 초기화 실패: \(error)")
             }
-
-            audioDelegate = SimpleAudioDelegate {
-                self.isPlaying = false
-                self.audioProgress = 0
-                if let start = self.item.question.startTime { self.audioPlayer?.currentTime = start }
-                else { self.audioPlayer?.currentTime = 0 }
-            }
-            audioPlayer?.delegate = audioDelegate
-
-        } catch { print("오디오 플레이어 초기화 실패: \(error)") }
+        }
     }
 
     private func togglePlayPause() {
@@ -866,6 +858,7 @@ private struct ListeningNoteDetailView: View {
     }
 
     private func stopAudio() {
+        audioPreparationID = UUID()
         audioPlayer?.stop()
         if let s = item.question.startTime { audioPlayer?.currentTime = s }
         else { audioPlayer?.currentTime = 0 }

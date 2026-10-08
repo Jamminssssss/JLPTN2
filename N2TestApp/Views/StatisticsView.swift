@@ -68,8 +68,8 @@ struct StatisticsView: View {
                 let q = DataLoader.load(set: set)
                 if q.isEmpty { continue }
                 let groups = DataLoader.groupQuestions(q)
-                let saved = DatabaseManager.shared.loadProgress(level: "JLPTN5", quizGroup: "Group1_set\(set)")
-                rTotal += Double(min(saved, max(groups.count - 1, 1))) / Double(max(groups.count - 1, 1))
+                let saved = DatabaseManager.shared.loadProgress(level: "JLPTN2", quizGroup: "Group1_set\(set)")
+                rTotal += Double(max(0, min(saved, max(groups.count - 1, 1)))) / Double(max(groups.count - 1, 1))
                 rCount += 1
             }
             let rRate = rCount > 0 ? rTotal / rCount : 0
@@ -79,8 +79,11 @@ struct StatisticsView: View {
             for set in 1...5 {
                 let aq = AudioDataLoader.load(set: set)
                 if aq.isEmpty { continue }
-                let saved = DatabaseManager.shared.loadProgress(level: "JLPTN5Audio", quizGroup: "Group2_set\(set)")
-                lTotal += Double(min(saved, max(aq.count - 1, 1))) / Double(max(aq.count - 1, 1))
+                let saved = DatabaseManager.shared.loadProgress(level: "JLPTN2Audio", quizGroup: "Group2_set\(set)")
+                let groups = AudioQuestionGroup.group(aq)
+                let questionIndex = max(0, min(saved, aq.count - 1))
+                let groupIndex = groups.firstIndex { $0.questionIndices.contains(questionIndex) } ?? 0
+                lTotal += Double(groupIndex) / Double(max(groups.count - 1, 1))
                 lCount += 1
             }
             let lRate = lCount > 0 ? lTotal / lCount : 0

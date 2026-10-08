@@ -54,13 +54,19 @@
 				Audio/n2q43.m4a = (Audio_N2_Set4, );
 				Audio/n2q44.m4a = (Audio_N2_Set4, );
 				Audio/n2q45.m4a = (Audio_N2_Set4, );
+				Audio/n2q46.m4a = (Audio_N2_Set5, );
+				Audio/n2q47.m4a = (Audio_N2_Set5, );
+				Audio/n2q48.m4a = (Audio_N2_Set5, );
+				Audio/n2q49.m4a = (Audio_N2_Set5, );
 				Audio/n2q5.mp3 = (Audio_N2_Set2, );
+				Audio/n2q50.m4a = (Audio_N2_Set5, );
 				Audio/n2q6.mp3 = (Audio_N2_Set2, );
 				Audio/n2q7.mp3 = (Audio_N2_Set2, );
 				Audio/n2q8.mp3 = (Audio_N2_Set2, );
 				Audio/n2q9.mp3 = (Audio_N2_Set2, );
 			};
 			membershipExceptions = (
+				Config/LocalDev.xcconfig,
 				Info.plist,
 			);
 			target = 86632EC62E5EC01D00A13457 /* N2TestApp */;
@@ -143,11 +149,12 @@
 					Audio_N2_Set2,
 					Audio_N2_Set3,
 					Audio_N2_Set4,
+					Audio_N2_Set5,
 					jlptn2_audio_set4,
 					jlptn2_reading_set4,
 				);
 				LastSwiftUpdateCheck = 1600;
-				LastUpgradeCheck = 2600;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					86632EC62E5EC01D00A13457 = {
 						CreatedOnToolsVersion = 16.0;
@@ -211,6 +218,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -277,6 +285,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -358,7 +367,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3.5;
+				MARKETING_VERSION = 2.3.7;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -401,7 +410,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3.5;
+				MARKETING_VERSION = 2.3.7;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

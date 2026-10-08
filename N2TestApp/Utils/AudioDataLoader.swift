@@ -57,16 +57,17 @@ extension AudioDataLoader {
             return []
         }
 
-        let rows = content
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .dropFirst() // 헤더 제거
+        let csvRows = QuizCSVParser.rows(from: content)
+        guard let header = csvRows.first else { return [] }
+        let rows = csvRows.dropFirst()
 
         var questions: [AudioQuestion] = []
 
-        for (index, row) in rows.enumerated() {
-            let columns = parseCSVLine(row)
+        for (index, columns) in rows.enumerated() {
+            guard columns.count == header.count else {
+                print("⚠️ Audio row \(index + 2) has \(columns.count) columns; expected \(header.count)")
+                continue
+            }
 
             // 최소 7개 컬럼 (question ~ audioFileName) 필요
             guard columns.count >= 7 else {
@@ -87,6 +88,10 @@ extension AudioDataLoader {
 
             let answer       = columns[Col.answer].trimmed
             let audioFileName = columns[Col.audioFileName].trimmed
+            guard options.count >= 2, options.contains(answer), !audioFileName.isEmpty else {
+                print("⚠️ Audio row \(index + 2) has invalid options, answer, or audio file")
+                continue
+            }
 
             // start / end 처리
             let rawStart = columns.count > Col.startTime ? TimeInterval(columns[Col.startTime].trimmed) : nil
@@ -183,26 +188,4 @@ private extension String {
     var trimmed: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }
-}
-
-// MARK: - CSV 파서
-
-private func parseCSVLine(_ line: String) -> [String] {
-    var result: [String] = []
-    var current = ""
-    var insideQuotes = false
-
-    for char in line {
-        if char == "\"" {
-            insideQuotes.toggle()
-        } else if char == "," && !insideQuotes {
-            result.append(current)
-            current = ""
-        } else {
-            current.append(char)
-        }
-    }
-
-    result.append(current)
-    return result
 }

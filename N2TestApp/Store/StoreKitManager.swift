@@ -52,63 +52,71 @@ class StoreKitManager: ObservableObject {
     // MARK: - 상품 로드 (구독 상품만)
 
     func requestProducts() async {
+        guard !isLoading else { return }
         do {
             isLoading = true
+            errorMessage = nil
             defer { isLoading = false }
 
             let subIDs = [monthlySubscriptionID, yearlySubscriptionID]
             products = try await Product.products(for: subIDs)
+            if products.count != subIDs.count {
+                errorMessage = NSLocalizedString("purchase.products.unavailable", comment: "")
+            }
 
             print("📦 구독 상품 \(products.count)개 로드 완료")
         } catch {
-            errorMessage = "제품 정보를 불러올 수 없습니다: \(error.localizedDescription)"
+            errorMessage = NSLocalizedString("purchase.products.unavailable", comment: "")
             print("❌ 제품 로드 실패: \(error)")
         }
     }
 
     // MARK: - 구독 구매
 
-    func purchaseMonthlySubscription() async throws -> Transaction? {
-        guard activeSubscriptionType != .monthly else { print("⚠️ 이미 월 구독중"); return nil }
+    func purchaseMonthlySubscription() async throws -> SubscriptionPurchaseOutcome {
+        guard activeSubscriptionType != .monthly else { return .alreadySubscribed }
         guard let product = products.first(where: { $0.id == monthlySubscriptionID }) else {
             throw StoreError.productNotFound
         }
-        return try await purchaseSubscription(product, type: .monthly)
+        return try await purchaseSubscription(product)
     }
 
-    func purchaseYearlySubscription() async throws -> Transaction? {
-        guard activeSubscriptionType != .yearly else { print("⚠️ 이미 연 구독중"); return nil }
+    func purchaseYearlySubscription() async throws -> SubscriptionPurchaseOutcome {
+        guard activeSubscriptionType != .yearly else { return .alreadySubscribed }
         guard let product = products.first(where: { $0.id == yearlySubscriptionID }) else {
             throw StoreError.productNotFound
         }
-        return try await purchaseSubscription(product, type: .yearly)
+        return try await purchaseSubscription(product)
     }
 
-    private func purchaseSubscription(_ product: Product, type: SubscriptionType) async throws -> Transaction? {
+    private func purchaseSubscription(_ product: Product) async throws -> SubscriptionPurchaseOutcome {
+        guard !isLoading else { throw StoreError.purchaseNotAllowed }
         isLoading = true
         defer { isLoading = false }
         let result = try await product.purchase()
         switch result {
         case .success(let verification):
             let transaction = try checkVerified(verification)
-            await updateCustomerProductStatus()
             await transaction.finish()
-            activeSubscriptionType = type
+            await updateCustomerProductStatus()
+            await updatePastSubscriptionHistory()
             print("✅ 구독 구매 성공: \(product.id)")
-            return transaction
-        case .userCancelled: print("👤 구매 취소"); return nil
-        case .pending:       print("⏳ 구매 보류"); return nil
-        @unknown default:    return nil
+            return .success(transaction)
+        case .userCancelled: return .cancelled
+        case .pending:       return .pending
+        @unknown default:    throw StoreError.unknown
         }
     }
 
     // MARK: - 복원
 
     func restorePurchases() async throws {
+        guard !isLoading else { throw StoreError.purchaseNotAllowed }
         isLoading = true
         defer { isLoading = false }
         try await AppStore.sync()
         await updateCustomerProductStatus()
+        await updatePastSubscriptionHistory()
         print(isSubscribed ? "✅ 구독 복원 완료" : "ℹ️ 복원할 구독 없음")
     }
 
@@ -120,6 +128,7 @@ class StoreKitManager: ObservableObject {
                 do {
                     let transaction = try await StoreKitManager.checkVerified(result)
                     await StoreKitManager.shared.updateCustomerProductStatus()
+                    await StoreKitManager.shared.updatePastSubscriptionHistory()
                     await transaction.finish()
                     print("🔄 Transaction 업데이트: \(transaction.productID)")
                 } catch {
@@ -164,7 +173,8 @@ class StoreKitManager: ObservableObject {
                 let transaction = try StoreKitManager.checkVerified(result)
 
                 // 자동 갱신 구독
-                if transaction.productType == .autoRenewable {
+                if transaction.productType == .autoRenewable,
+                   transaction.productID == monthlySubscriptionID || transaction.productID == yearlySubscriptionID {
                     let isRevoked  = transaction.revocationDate != nil
                     let notExpired = transaction.expirationDate == nil
                         || (transaction.expirationDate ?? Date()) > Date()
@@ -178,7 +188,7 @@ class StoreKitManager: ObservableObject {
                 }
 
                 // 레거시 광고 제거 비소모품 → 구독 권한으로 처리
-                if transaction.productID == removeAdsProductID {
+                if transaction.productID == removeAdsProductID, transaction.revocationDate == nil {
                     subscriptionActive = true
                     purchased.insert(transaction.productID)
                 }
@@ -220,16 +230,23 @@ class StoreKitManager: ObservableObject {
 // MARK: - 구독 타입
 enum SubscriptionType { case none, monthly, yearly }
 
+enum SubscriptionPurchaseOutcome {
+    case success(Transaction)
+    case cancelled
+    case pending
+    case alreadySubscribed
+}
+
 // MARK: - 오류
 enum StoreError: Error, LocalizedError {
     case failedVerification, productNotFound, purchaseNotAllowed, networkError, unknown
     var errorDescription: String? {
         switch self {
-        case .failedVerification:  return "구매 검증에 실패했습니다"
-        case .productNotFound:     return "제품을 찾을 수 없습니다"
-        case .purchaseNotAllowed:  return "구매가 허용되지 않습니다"
-        case .networkError:        return "네트워크 연결을 확인해주세요"
-        case .unknown:             return "알 수 없는 오류가 발생했습니다"
+        case .failedVerification:  return NSLocalizedString("purchase.error.verification", comment: "")
+        case .productNotFound:     return NSLocalizedString("purchase.products.unavailable", comment: "")
+        case .purchaseNotAllowed:  return NSLocalizedString("purchase.error.busy", comment: "")
+        case .networkError:        return NSLocalizedString("purchase.error.network", comment: "")
+        case .unknown:             return NSLocalizedString("purchase.error.unknown", comment: "")
         }
     }
 }

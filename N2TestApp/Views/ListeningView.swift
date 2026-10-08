@@ -28,16 +28,18 @@ struct ListeningView: View {
     
     @State private var audioQuestions: [AudioQuestion] = []
     @State private var currentQuestionIndex = 0
-    @State private var selectedAnswer: String?
+    @State private var groupAnswers: [UUID: String] = [:]
     @State private var showAnswer = false
     @State private var isPlaying = false
     @State private var progress: Double = 0
     @State private var score: Int = 0
     @State private var audioProgress: Float = 0
     @State private var audioPlayer: AVAudioPlayer?
+    @State private var audioPreparationID = UUID()
     @State private var updateTimer: Timer?
     @State private var endTimeTimer: Timer?
     @State private var showFullscreenImage = false
+    @State private var fullscreenImageName: String?
     @State private var showNextQuestion = false
     @State private var showMenu = false
     @State private var _delegate: AudioPlayerDelegate?
@@ -56,6 +58,7 @@ struct ListeningView: View {
     @State private var set2Progress: Double = 0
     @State private var set3Progress: Double = 0
     @State private var set4Progress: Double = 0
+    @State private var set5Progress: Double = 0
 
     // 🌟 재생 속도 관리 변수 추가
     @State private var playbackRate: Float = 1.0
@@ -76,11 +79,31 @@ struct ListeningView: View {
     private var quizGroup: String { "Group2_set\(selectedSet ?? 0)" }
     private var cs: ColorScheme { colorScheme }
     
-    private var currentQuestion: AudioQuestion? {
-        guard !audioQuestions.isEmpty, currentQuestionIndex < audioQuestions.count else { return nil }
-        return audioQuestions[currentQuestionIndex]
+    private var questionGroups: [AudioQuestionGroup] {
+        AudioQuestionGroup.group(audioQuestions)
     }
-    
+
+    private var currentGroupIndex: Int {
+        questionGroups.firstIndex { $0.questionIndices.contains(currentQuestionIndex) } ?? 0
+    }
+
+    private var currentGroup: AudioQuestionGroup? {
+        let groups = questionGroups
+        guard groups.indices.contains(currentGroupIndex) else { return nil }
+        return groups[currentGroupIndex]
+    }
+
+    private var currentQuestion: AudioQuestion? { currentGroup?.questions.first }
+
+    private var allGroupAnswered: Bool {
+        guard let group = currentGroup else { return false }
+        return group.questions.allSatisfy { groupAnswers[$0.id] != nil }
+    }
+
+    private func groupStartIndex(for savedIndex: Int) -> Int {
+        questionGroups.first { $0.questionIndices.contains(savedIndex) }?.questionIndices.first ?? 0
+    }
+
     private var totalQuestionsCount: Int {
         audioQuestions.count
     }
@@ -117,10 +140,14 @@ struct ListeningView: View {
                                         
                                         VStack(spacing: 16) {
                                             if let q = currentQuestion {
-                                                singleQuestionView(q: q, geometry: geometry)
+                                                if let group = currentGroup, group.questions.count > 1 {
+                                                    multiGroupView(group: group, geometry: geometry)
+                                                } else {
+                                                    singleQuestionView(q: q, geometry: geometry)
+                                                }
                                             }
                                             
-                                            if showAnswer {
+                                            if allGroupAnswered {
                                                 nextButton.padding(.top, 4)
                                             }
                                         }
@@ -182,7 +209,7 @@ struct ListeningView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .tabBar)
         .fullScreenCover(isPresented: $showFullscreenImage) {
-            if let imageName = currentQuestion?.imageName,
+            if let imageName = fullscreenImageName ?? currentQuestion?.imageName,
                let image = UIImage(named: imageName) {
                 FullscreenImageView(image: image) { showFullscreenImage = false }
             }
@@ -195,11 +222,10 @@ struct ListeningView: View {
         }
         .onAppear {
             isTabBarHidden = true
-            configureAudioSession()
             if let set = selectedSet {
                 let saved = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group2_set\(set)")
-                currentQuestionIndex = (saved < audioQuestions.count) ? saved : 0
-                progress = Double(currentQuestionIndex) / Double(max(audioQuestions.count, 1))
+                currentQuestionIndex = groupStartIndex(for: saved)
+                progress = Double(currentGroupIndex) / Double(max(questionGroups.count, 1))
             } else {
                 currentQuestionIndex = 0; progress = 0
             }
@@ -218,14 +244,20 @@ struct ListeningView: View {
             if let set = selectedSet {
                 DatabaseManager.shared.saveProgress(level: level, quizGroup: "Group2_set\(set)", index: newValue)
             }
-            progress = Double(newValue) / Double(max(totalQuestionsCount, 1))
+            progress = Double(currentGroupIndex) / Double(max(questionGroups.count, 1))
             refreshSetProgress()
         }
         .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in
             if let set = selectedSet {
                 let saved = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group2_set\(set)")
-                currentQuestionIndex = (saved < audioQuestions.count) ? saved : 0
-                progress = Double(currentQuestionIndex) / Double(max(audioQuestions.count, 1))
+                let restoredIndex = groupStartIndex(for: saved)
+                if restoredIndex != currentQuestionIndex {
+                    stopAudio()
+                    currentQuestionIndex = restoredIndex
+                    groupAnswers = [:]; showAnswer = false; showScript = false; audioProgress = 0
+                    setupAudio()
+                }
+                progress = Double(currentGroupIndex) / Double(max(questionGroups.count, 1))
             }
             refreshSetProgress()
         }
@@ -241,7 +273,7 @@ struct ListeningView: View {
                         if let set = selectedSet { DatabaseManager.shared.saveProgress(level: level, quizGroup: "Group2_set\(set)", index: currentQuestionIndex) }
                         ODRManager.shared.releaseResource() // 🌟 세트를 나갈 때 ODR 해제
                         selectedSet = nil; currentQuestionIndex = 0
-                        selectedAnswer = nil; showAnswer = false; progress = 0
+                        groupAnswers = [:]; showAnswer = false; progress = 0
                     } label: { Label("세트 선택", systemImage: "list.number") }
                     Button { dismiss() } label: { Label("메인으로 돌아가기", systemImage: "house.fill") }
                     Menu("글자 크기") {
@@ -261,7 +293,7 @@ struct ListeningView: View {
                     Text("聴  解").font(.system(size: 12, weight: .medium)).foregroundColor(cs == .dark ? .white.opacity(0.45) : .black.opacity(0.40)).kerning(4)
                 }
                 Spacer()
-                Text("\(currentQuestionIndex + 1)／\(max(totalQuestionsCount, 1))")
+                Text("\(currentGroupIndex + 1)／\(max(questionGroups.count, 1))")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(cs == .dark ? .white.opacity(0.5) : .black.opacity(0.45))
                     .frame(width: 60, alignment: .trailing).padding(.trailing, 16)
@@ -280,7 +312,7 @@ struct ListeningView: View {
             ZStack(alignment: .leading) {
                 Color.examBorder(cs).opacity(0.18)
                 Color.examGreen.opacity(0.65)
-                    .frame(width: g.size.width * CGFloat(currentQuestionIndex + 1) / CGFloat(max(totalQuestionsCount, 1)))
+                    .frame(width: g.size.width * CGFloat(currentGroupIndex + 1) / CGFloat(max(questionGroups.count, 1)))
                     .animation(.easeInOut(duration: 0.3), value: currentQuestionIndex)
             }
         }
@@ -291,10 +323,10 @@ struct ListeningView: View {
     private func setSelectionGrid(geo: GeometryProxy) -> some View {
         let iconSize: CGFloat = min(geo.size.width * 0.22, 100)
         let lockSize: CGFloat = iconSize * 0.45
-        let progresses = [set1Progress, set2Progress, set3Progress, set4Progress]
+        let progresses = [set1Progress, set2Progress, set3Progress, set4Progress, set5Progress]
         
         VStack(spacing: 0) {
-            ForEach(1...4, id: \.self) { setNum in
+            ForEach(1...5, id: \.self) { setNum in
                 let unlocked = storeManager.isPremium || setNum == 1
                 let prog = setNum <= progresses.count ? progresses[setNum - 1] : 0.0
                 
@@ -306,7 +338,7 @@ struct ListeningView: View {
                             selectedSet = setNum
                             loadQuestionsForSet(setNum)
                         } else {
-                            // 2, 3, 4회차는 ODR 다운로드
+                            // 2~5회차는 ODR 다운로드
                             isDownloadingODR = true
                             ODRManager.shared.downloadResource(tag: "Audio_N2_Set\(setNum)") { success in
                                 isDownloadingODR = false
@@ -343,7 +375,7 @@ struct ListeningView: View {
                     .frame(maxWidth: .infinity).frame(height: max(geo.size.height * 0.44, 260))
                 }
                 .buttonStyle(.plain)
-                if setNum < 4 { Divider().background(Color.gray.opacity(0.3)) }
+                if setNum < 5 { Divider().background(Color.gray.opacity(0.3)) }
             }
         }
     }
@@ -503,6 +535,26 @@ struct ListeningView: View {
         }
     }
 
+    @ViewBuilder
+    private func multiGroupView(group: AudioQuestionGroup, geometry: GeometryProxy) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            audioPlayerPanel
+            if allGroupAnswered && hasScript { scriptPanel }
+            ForEach(Array(group.questions.enumerated()), id: \.element.id) { index, question in
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("문항 \(group.questionIndices[index] + 1)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Color.examGreen)
+                    questionBox(text: question.question, imageName: question.imageName, geometry: geometry)
+                    examOptions(q: question)
+                    if index < group.questions.count - 1 {
+                        Rectangle().fill(Color.examBorder(cs).opacity(0.35)).frame(height: 1)
+                    }
+                }
+            }
+        }
+    }
+
     @ViewBuilder private func questionBox(text: String, imageName: String?, geometry: GeometryProxy) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 0) {
@@ -512,20 +564,21 @@ struct ListeningView: View {
             }.frame(height: 18)
             Text(text).font(.custom("Hiragino Sans", size: 16 * fontScale, relativeTo: .body)).foregroundColor(cs == .dark ? .white.opacity(0.88) : Color(red: 0.08, green: 0.06, blue: 0.12)).lineSpacing(8).multilineTextAlignment(.center).frame(maxWidth: .infinity, alignment: .center).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 4)
             if let name = imageName, let img = UIImage(named: name) {
-                Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: geometry.size.width * 0.8).frame(maxWidth: .infinity, alignment: .center).onTapGesture { showFullscreenImage = true }
+                Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: geometry.size.width * 0.8).frame(maxWidth: .infinity, alignment: .center).onTapGesture { fullscreenImageName = name; showFullscreenImage = true }
             }
         }
         .padding(14).background(Color.examCard(cs)).clipShape(RoundedRectangle(cornerRadius: 4)).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.examBorder(cs), lineWidth: 1.5)).overlay(alignment: .topLeading) { Rectangle().fill(Color.examGreen).frame(width: 4).clipShape(RoundedRectangle(cornerRadius: 2)) }
     }
 
     @ViewBuilder private func examOptions(q: AudioQuestion) -> some View {
+        let isAnswered = groupAnswers[q.id] != nil
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(q.options.enumerated()), id: \.offset) { idx, option in
-                let isCorrect = showAnswer && option == q.answer
-                let isWrong   = showAnswer && option == selectedAnswer && option != q.answer
-                let isDimmed  = showAnswer && !isCorrect && !isWrong
+                let isCorrect = isAnswered && option == q.answer
+                let isWrong   = isAnswered && option == groupAnswers[q.id] && option != q.answer
+                let isDimmed  = isAnswered && !isCorrect && !isWrong
 
-                Button { selectAnswer(option) } label: {
+                Button { selectAnswer(option, for: q) } label: {
                     HStack(alignment: .top, spacing: 0) {
                         Text(option).font(.custom("Hiragino Sans", size: 15 * fontScale, relativeTo: .body)).foregroundColor(isCorrect ? Color.green : isWrong ? Color.red : isDimmed ? (cs == .dark ? .white.opacity(0.28) : .black.opacity(0.26)) : cs == .dark ? .white.opacity(0.88) : Color(red: 0.08, green: 0.06, blue: 0.12)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .center)
                     }
@@ -536,7 +589,7 @@ struct ListeningView: View {
                             else if isWrong { Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundColor(.red) }
                         }.padding(.trailing, 12)
                     }
-                }.disabled(showAnswer).buttonStyle(.plain)
+                }.disabled(isAnswered).buttonStyle(.plain)
                 if idx < q.options.count - 1 { Rectangle().fill(Color.examBorder(cs).opacity(0.22)).frame(height: 1).padding(.horizontal, 12) }
             }
         }
@@ -574,7 +627,7 @@ struct ListeningView: View {
         Button { moveToNextQuestion() } label: {
             HStack(spacing: 8) {
                 Spacer()
-                Text(currentQuestionIndex < totalQuestionsCount - 1 ? "다음 문제" : "완료").font(.system(size: 15 * fontScale, weight: .medium)).foregroundColor(cs == .dark ? .white.opacity(0.85) : Color.examGreen).padding(.vertical, 14)
+                Text(currentGroupIndex < questionGroups.count - 1 ? "다음 문제" : "완료").font(.system(size: 15 * fontScale, weight: .medium)).foregroundColor(cs == .dark ? .white.opacity(0.85) : Color.examGreen).padding(.vertical, 14)
                 Image(systemName: "arrow.right").font(.system(size: 12, weight: .semibold)).foregroundColor(cs == .dark ? .white.opacity(0.5) : Color.examGreen.opacity(0.7))
                 Spacer()
             }.frame(maxWidth: .infinity).background(Color.examCard(cs)).clipShape(RoundedRectangle(cornerRadius: 4)).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.examGreen.opacity(cs == .dark ? 0.55 : 0.75), lineWidth: 1.5))
@@ -608,7 +661,7 @@ struct ListeningView: View {
                         if let set = selectedSet {
                             DatabaseManager.shared.resetProgress(level: level, quizGroup: "Group2_set\(set)")
                             DatabaseManager.shared.saveProgress(level: level, quizGroup: "Group2_set\(set)", index: 0)
-                            currentQuestionIndex = 0; selectedAnswer = nil; showAnswer = false; progress = 0; score = 0; audioProgress = 0; isPlaying = false; showScript = false; selectedSet = nil; audioQuestions = []
+                            currentQuestionIndex = 0; groupAnswers = [:]; showAnswer = false; progress = 0; score = 0; audioProgress = 0; isPlaying = false; showScript = false; selectedSet = nil; audioQuestions = []
                         }
                         stopAudio(); showResultSheet = false; dismiss()
                     } label: {
@@ -637,17 +690,20 @@ struct ListeningView: View {
         return String(format: "%d:%02d", Int(duration) / 60, Int(duration) % 60)
     }
 
-    private func selectAnswer(_ answer: String) {
-        selectedAnswer = answer; showAnswer = true
-        guard let question = currentQuestion else { return }
+    private func selectAnswer(_ answer: String, for question: AudioQuestion) {
+        guard groupAnswers[question.id] == nil,
+              let questionIndex = audioQuestions.firstIndex(where: { $0.id == question.id }) else { return }
+        groupAnswers[question.id] = answer
+        showAnswer = allGroupAnswered
         if answer == question.answer {
-            score += 1; removeIncorrectNoteIfNeeded(questionIndex: currentQuestionIndex)
+            score += 1
+            removeIncorrectNoteIfNeeded(questionIndex: questionIndex)
         } else {
-            saveIncorrectNoteIfEligible(questionIndex: currentQuestionIndex)
+            saveIncorrectNoteIfEligible(questionIndex: questionIndex)
         }
         if !isScriptEntitled { showScript = false }
     }
-    
+
     private func saveIncorrectNoteIfEligible(questionIndex: Int) {
         guard let set = selectedSet else { return }
         let isFreeScope = (set == 1 && questionIndex <= 2)
@@ -660,28 +716,21 @@ struct ListeningView: View {
     }
     
     private func moveToNextQuestion() {
+        guard allGroupAnswered, let lastIndex = currentGroup?.questionIndices.last else { return }
         if !storeManager.isPremium, selectedSet == 1 {
-            if currentQuestionIndex >= 2 { showPurchaseView = true; return }
+            if lastIndex >= 2 { showPurchaseView = true; return }
         }
-        if currentQuestionIndex < totalQuestionsCount - 1 {
+        if lastIndex < totalQuestionsCount - 1 {
             playbackRate = 1.0 // 🌟 다음 문제로 넘어갈 때 속도 초기화
-            stopAudio(); audioPlayer = nil; currentQuestionIndex += 1; selectedAnswer = nil; showAnswer = false; showScript = false; audioProgress = 0; isPlaying = false; setupAudio(); refreshSetProgress()
+            stopAudio(); audioPlayer = nil; currentQuestionIndex = lastIndex + 1; groupAnswers = [:]; showAnswer = false; showScript = false; audioProgress = 0; isPlaying = false; setupAudio(); refreshSetProgress()
         } else { showResultSheet = true }
     }
     
     private func resetToFirstQuestion() {
         playbackRate = 1.0 // 🌟 처음으로 돌아갈 때 속도 초기화
-        stopAudio(); audioPlayer = nil; currentQuestionIndex = 0; progress = 0; score = 0; selectedAnswer = nil; showAnswer = false; audioProgress = 0; isPlaying = false; showScript = false; setupAudio()
+        stopAudio(); audioPlayer = nil; currentQuestionIndex = 0; progress = 0; score = 0; groupAnswers = [:]; showAnswer = false; audioProgress = 0; isPlaying = false; showScript = false; setupAudio()
         DatabaseManager.shared.resetProgress(level: level, quizGroup: quizGroup)
         if let set = selectedSet { DatabaseManager.shared.saveProgress(level: level, quizGroup: "Group2_set\(set)", index: 0) }
-    }
-    
-    private func configureAudioSession() {
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .default, options: [])
-            try audioSession.setActive(true)
-        } catch { print("오디오 세션 설정 실패: \(error.localizedDescription)") }
     }
     
     private func restartCurrentAudio() {
@@ -694,9 +743,10 @@ struct ListeningView: View {
     private func loadQuestionsForSet(_ set: Int) {
         audioQuestions = AudioDataLoader.load(set: set)
         let savedIndex = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group2_set\(set)")
-        currentQuestionIndex = (savedIndex < audioQuestions.count) ? savedIndex : 0
-        progress = audioQuestions.isEmpty ? 0 : Double(currentQuestionIndex) / Double(audioQuestions.count)
-        selectedAnswer = nil; showAnswer = false; audioProgress = 0; isPlaying = false
+        currentQuestionIndex = groupStartIndex(for: savedIndex)
+        progress = Double(currentGroupIndex) / Double(max(questionGroups.count, 1))
+        groupAnswers = [:]; showAnswer = false; showScript = false; score = 0
+        audioProgress = 0; isPlaying = false
         stopAudio(); setupAudio()
     }
 
@@ -704,37 +754,49 @@ struct ListeningView: View {
         func prog(set: Int, group: String) -> Double {
             let qs = AudioDataLoader.load(set: set)
             let s  = DatabaseManager.shared.loadProgress(level: level, quizGroup: group)
-            return qs.isEmpty ? 0 : Double(min(s, max(qs.count - 1, 0))) / Double(max(qs.count, 1))
+            let groups = AudioQuestionGroup.group(qs)
+            let index = groups.firstIndex { $0.questionIndices.contains(s) } ?? 0
+            return Double(index) / Double(max(groups.count, 1))
         }
         set1Progress = prog(set: 1, group: "Group2_set1")
         set2Progress = prog(set: 2, group: "Group2_set2")
         set3Progress = prog(set: 3, group: "Group2_set3")
         set4Progress = prog(set: 4, group: "Group2_set4")
+        set5Progress = prog(set: 5, group: "Group2_set5")
     }
 
     private func setupAudio() {
+        stopAudio()
+        audioPlayer = nil
         guard let question = currentQuestion else { return }
-        let localizedFromCSV = question.localizedScript()
-        let script: String? = (localizedFromCSV?.isEmpty == false) ? localizedFromCSV : nil
-        currentScriptText = script ?? ""
-        hasScript = (script != nil)
-        
+        let scripts = (currentGroup?.questions ?? [question]).compactMap { question -> String? in
+            guard let text = question.localizedScript(), !text.isEmpty else { return nil }
+            return text
+        }.reduce(into: [String]()) { result, text in
+            if !result.contains(text) { result.append(text) }
+        }
+        currentScriptText = scripts.joined(separator: "\n\n")
+        hasScript = !scripts.isEmpty
+
         guard let url = Bundle.main.url(forResource: question.audioFileName, withExtension: nil) else { return }
-        do {
-            configureAudioSession()
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            
-            // 🌟 속도 조절 활성화 및 현재 설정된 배속 반영
-            audioPlayer?.enableRate = true
-            audioPlayer?.rate = playbackRate
-            
-            audioPlayer?.prepareToPlay()
-            if let start = question.startTime, let end = question.endTime, end > start { audioPlayer?.currentTime = start; setupEndTimeTimer() }
-            else { audioPlayer?.currentTime = 0; endTimeTimer?.invalidate() }
-            let delegate = AudioPlayerDelegate(isPlaying: $isPlaying)
-            _delegate = delegate; audioPlayer?.delegate = delegate
-            startProgressUpdateTimer(); setupEndTimeTimer()
-        } catch { print("오디오 플레이어 초기화 실패: \(error.localizedDescription)") }
+        let requestID = UUID()
+        audioPreparationID = requestID
+        let start = question.startTime ?? 0
+        AudioPlayerPreparation.prepare(url: url, startTime: start, rate: playbackRate) { result in
+            // Ignore completion after changing questions, resetting, or leaving the screen.
+            guard audioPreparationID == requestID, currentQuestion?.id == question.id else { return }
+            switch result {
+            case .success(let player):
+                player.rate = playbackRate
+                let delegate = AudioPlayerDelegate(isPlaying: $isPlaying)
+                _delegate = delegate
+                player.delegate = delegate
+                audioPlayer = player
+                startProgressUpdateTimer()
+            case .failure(let error):
+                print("오디오 플레이어 초기화 실패: \(error.localizedDescription)")
+            }
+        }
     }
     
     private func setupEndTimeTimer() {
@@ -781,6 +843,7 @@ struct ListeningView: View {
     }
     
     private func stopAudio() {
+        audioPreparationID = UUID()
         audioPlayer?.stop()
         if let startTime = currentQuestion?.startTime { audioPlayer?.currentTime = startTime }
         else { audioPlayer?.currentTime = 0 }
@@ -796,6 +859,41 @@ struct ListeningView: View {
         if isPlaying {
             audioPlayer?.play()
             setupEndTimeTimer()
+        }
+    }
+}
+
+/// Shared by the listening screen and incorrect notes. Session work stays off the UI thread.
+enum AudioPlayerPreparation {
+    private static let queue = DispatchQueue(label: "com.n2testapp.audio-preparation", qos: .userInitiated)
+
+    static func prepare(
+        url: URL,
+        startTime: TimeInterval = 0,
+        rate: Float = 1,
+        completion: @escaping @MainActor (Result<AVAudioPlayer, Error>) -> Void
+    ) {
+        queue.async {
+            let result: Result<AVAudioPlayer, Error>
+            do {
+                let session = AVAudioSession.sharedInstance()
+                if session.category != .playback || session.mode != .default || !session.categoryOptions.isEmpty {
+                    try session.setCategory(.playback, mode: .default, options: [])
+                }
+                try session.setActive(true)
+
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.enableRate = true
+                player.rate = rate
+                player.prepareToPlay()
+                player.currentTime = startTime
+                result = .success(player)
+            } catch {
+                result = .failure(error)
+            }
+            DispatchQueue.main.async {
+                completion(result)
+            }
         }
     }
 }
