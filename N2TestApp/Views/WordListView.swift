@@ -5,11 +5,11 @@ struct WordListView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var synthesizer = AVSpeechSynthesizer()
     @State private var isSpeaking = false
-    
     @StateObject private var interstitialViewModel = InterstitialViewModel()
-    @State private var adTimer: Timer?
-    
-    @ObservedObject private var appAdManager = AppAdManager.shared
+    @State private var currentPage = 0
+    @State private var visitedPages: Set<Int> = [0]
+    @State private var isChangingPage = false
+    private let pageSize = 20
     
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -26,69 +26,90 @@ struct WordListView: View {
         }
     }
     
-    
     var filteredWords: [Word] {
         return VocabDataLoader.shared.words
     }
     
+    private var pageCount: Int { max(1, (filteredWords.count + pageSize - 1) / pageSize) }
+
+    private var pageWords: [Word] {
+        Array(filteredWords.dropFirst(currentPage * pageSize).prefix(pageSize))
+    }
+
+    private func nextPage(onChanged: @escaping () -> Void) {
+        guard !isChangingPage, currentPage + 1 < pageCount else { return }
+        isChangingPage = true
+        synthesizer.stopSpeaking(at: .immediate)
+        let advance = {
+            currentPage += 1
+            visitedPages.insert(currentPage)
+            isChangingPage = false
+            onChanged()
+        }
+        // After several pages of browsing, show one ad at an explicit page boundary.
+        if visitedPages.count >= 3 {
+            interstitialViewModel.showAtStudyBreak(onFinished: advance)
+        } else {
+            advance()
+        }
+    }
+
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     AdaptiveTopBannerView()
                     
-                    ScrollView {
-                        LazyVStack(spacing: 20) {
-                            ForEach(filteredWords, id: \.kanji) { word in
-                                WordRow(word: word)
-                                    .onTapGesture {
-                                        speakWord(word: word)
+                    ScrollViewReader { proxy in
+                        VStack(spacing: 0) {
+                            ScrollView {
+                                LazyVStack(spacing: 20) {
+                                    Color.clear.frame(height: 1).id("word-page-top")
+                                    ForEach(pageWords, id: \.kanji) { word in
+                                        WordRow(word: word)
+                                            .onTapGesture { speakWord(word: word) }
                                     }
+                                }
+                                .padding(.horizontal)
+                                .padding(.top, 8)
+                                .padding(.bottom, 16)
+                            }
+                            if pageCount > 1 {
+                                HStack {
+                                    Button("이전 페이지") {
+                                        synthesizer.stopSpeaking(at: .immediate)
+                                        currentPage -= 1
+                                        visitedPages.insert(currentPage)
+                                        proxy.scrollTo("word-page-top", anchor: .top)
+                                    }
+                                    .disabled(currentPage == 0 || isChangingPage)
+                                    Spacer()
+                                    Text("\(currentPage + 1) / \(pageCount)")
+                                        .monospacedDigit()
+                                    Spacer()
+                                    Button("다음 페이지") {
+                                        nextPage { proxy.scrollTo("word-page-top", anchor: .top) }
+                                    }
+                                    .disabled(currentPage + 1 >= pageCount || isChangingPage)
+                                }
+                                .padding()
                             }
                         }
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        .padding(.bottom, bannerHeight)
                     }
-                    
+
                     AdaptiveBottomBannerView()
                 }
             }
             .navigationTitle("단어장")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .disabled(isChangingPage)
         .navigationViewStyle(StackNavigationViewStyle())
         .toolbar(.hidden, for: .tabBar)
-        .onAppear {
-            if !appAdManager.hasShownWordListAd {
-                // ⭐️ 1. 화면에 진입하자마자 광고를 미리 로드해둡니다 (네트워크 대기 시간 최소화)
-                Task { @MainActor in
-                    if !interstitialViewModel.isAdReady {
-                        await interstitialViewModel.loadAd()
-                    }
-                }
-                
-                // ⭐️ 2. 5초 대기 타이머 시작
-                adTimer?.invalidate()
-                adTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
-                    Task { @MainActor in
-                        // 만약 5초가 지났는데도 네트워크 문제로 로드가 덜 되었다면 안전장치로 한번 더 로드 대기
-                        if !interstitialViewModel.isAdReady {
-                            await interstitialViewModel.loadAd()
-                        }
-                        
-                        // 준비가 완료되었다면 광고 표시
-                        if interstitialViewModel.isAdReady {
-                            interstitialViewModel.showAd()
-                            appAdManager.hasShownWordListAd = true
-                        }
-                    }
-                }
-            }
-        }
+        .task { await interstitialViewModel.loadAd() }
         .onDisappear {
-            // 화면을 벗어나면 타이머 해제
-            adTimer?.invalidate()
+            synthesizer.stopSpeaking(at: .immediate)
+            isSpeaking = false
         }
     }
     

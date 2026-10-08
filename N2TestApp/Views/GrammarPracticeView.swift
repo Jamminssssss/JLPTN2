@@ -162,15 +162,14 @@ struct GrammarPracticeView: View {
 
     @StateObject private var storeManager   = StoreKitManager.shared
     @State private var showPurchaseView:     Bool          = false
+    @StateObject private var interstitialViewModel = InterstitialViewModel()
+    @State private var isAdvancing = false
     private static let freeQuestionLimit    = 3
 
     // TTS (문장 읽어주기)
     @StateObject private var ttsManager = JapaneseTTSManager.shared
 
-    @StateObject private var interstitialViewModel = InterstitialViewModel()
-    @ObservedObject private var appAdManager = AppAdManager.shared
     
-    @State private var adTimer: Timer?
 
     // MARK: Derived
 
@@ -248,16 +247,28 @@ struct GrammarPracticeView: View {
     }
 
     private func advance() {
+        guard !isAdvancing else { return }
         let nextIndex = grammarController.currentExampleIndex + 1
 
         if nextIndex >= GrammarPracticeView.freeQuestionLimit && !storeManager.isSubscribed {
+            ttsManager.stop()
             showPurchaseView = true
             return
         }
 
         if grammarController.currentExampleIndex < grammarController.examples.count - 1 {
-            grammarController.nextExample(totalExamples: grammarController.examples.count)
-            setupPuzzle()
+            ttsManager.stop()
+            let moveToNext = {
+                grammarController.nextExample(totalExamples: grammarController.examples.count)
+                setupPuzzle()
+                isAdvancing = false
+            }
+            isAdvancing = true
+            if grammarController.currentExampleIndex == 0, puzzleState == .correct {
+                interstitialViewModel.showAtStudyBreak(onFinished: moveToNext)
+            } else {
+                moveToNext()
+            }
         } else {
             grammarController.showCompletionScreen = true
         }
@@ -352,6 +363,7 @@ struct GrammarPracticeView: View {
             AdaptiveBottomBannerView()
         }
         .ignoresSafeArea(.container, edges: [.leading, .trailing])
+        .disabled(isAdvancing)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
@@ -363,26 +375,13 @@ struct GrammarPracticeView: View {
         .onAppear {
             grammarController.loadProgress()
             setupPuzzle()
-            
-            if !appAdManager.hasShownGrammarAd {
-                adTimer?.invalidate()
-                adTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
-                    Task { @MainActor in
-                        await interstitialViewModel.loadAd()
-                        if interstitialViewModel.isAdReady {
-                            interstitialViewModel.showAd()
-                            appAdManager.hasShownGrammarAd = true
-                        }
-                    }
-                }
-            }
         }
+        .task { await interstitialViewModel.loadAd() }
         .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in
             grammarController.loadProgress()
             setupPuzzle()
         }
         .onDisappear {
-            adTimer?.invalidate()
             ttsManager.stop()
         }
     }

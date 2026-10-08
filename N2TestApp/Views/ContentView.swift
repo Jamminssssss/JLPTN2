@@ -79,14 +79,31 @@ struct ContentView: View {
             }
 
             Task {
+                while isInitializing && !Task.isCancelled
+                    && storeManager.products.isEmpty && !storeManager.isLoading {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+
                 await storeManager.updateCustomerProductStatus()
                 try? await Task.sleep(nanoseconds: 500_000_000)
 
                 if !hasShownOpenAdThisSession {
+                    guard isInitializing, scenePhase == .active else {
+                        hasShownOpenAdThisSession = true
+                        isInitializing = false
+                        return
+                    }
                     if adControlManager.shouldShowAppOpenAds {
                         await adManager.loadAd()
+                        // Never show a late startup ad after the user can enter learning.
+                        guard isInitializing, scenePhase == .active else {
+                            hasShownOpenAdThisSession = true
+                            isInitializing = false
+                            return
+                        }
                         if adManager.appOpenAd != nil {
                             adManager.showAdIfAvailable()
+                            if !adManager.isAdShowing { isInitializing = false }
                         } else {
                             isInitializing = false
                         }
@@ -98,7 +115,9 @@ struct ContentView: View {
             }
         }
         .onChange(of: adManager.isAdShowing) { _, isShowing in
-            if !isShowing && isInitializing {
+            if isShowing {
+                cancelAdTimeout()
+            } else if isInitializing {
                 cancelAdTimeout()
                 isInitializing = false
             }

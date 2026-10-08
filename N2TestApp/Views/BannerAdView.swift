@@ -9,7 +9,17 @@ struct BannerAdView: UIViewRepresentable {
     @ObservedObject private var adControlManager = AdControlManager.shared
 
     func makeUIView(context: Context) -> BannerView {
-        let banner = BannerView(adSize: currentOrientationAnchoredAdaptiveBanner(width: UIScreen.main.bounds.width))
+        // Derive screen from context instead of deprecated UIScreen.main
+        let screen: UIScreen? = {
+            // Prefer a screen from a connected key window
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first(where: { $0.isKeyWindow }) {
+                return window.windowScene?.screen
+            }
+            return nil
+        }()
+        let screenWidth = screen?.bounds.width ?? 320 // safe fallback
+        let banner = BannerView(adSize: currentOrientationAnchoredAdaptiveBanner(width: screenWidth))
         banner.adUnitID = adUnitID
         
         // ⭐️ rootViewController 올바르게 가져오기

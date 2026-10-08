@@ -68,7 +68,9 @@ struct ListeningView: View {
 
     @StateObject private var storeManager = StoreKitManager.shared
     @StateObject private var interstitialViewModel = InterstitialViewModel()
-    @ObservedObject private var appAdManager = AppAdManager.shared
+    @ObservedObject private var adControlManager = AdControlManager.shared
+    @State private var isFinishingStudy = false
+    @Environment(\.scenePhase) private var scenePhase
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
@@ -120,6 +122,12 @@ struct ListeningView: View {
             return true
         }
         return false
+    }
+
+    private var shouldPreloadInterstitialAds: Bool {
+        selectedSet == 1 && scenePhase == .active
+            && adControlManager.shouldShowInterstitialAds
+            && !showResultSheet && !showPurchaseView && !showFullscreenImage
     }
 
     var body: some View {
@@ -206,6 +214,7 @@ struct ListeningView: View {
             }
         }
         .ignoresSafeArea(.container, edges: [.leading, .trailing])
+        .disabled(isFinishingStudy)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .tabBar)
         .fullScreenCover(isPresented: $showFullscreenImage) {
@@ -239,6 +248,13 @@ struct ListeningView: View {
             stopAudio()
             refreshSetProgress()
             ODRManager.shared.releaseResource() // 🌟 뷰를 빠져나갈 때 ODR 메모리 해제
+        }
+        .task(id: shouldPreloadInterstitialAds) {
+            guard shouldPreloadInterstitialAds else { return }
+            await interstitialViewModel.loadAd()
+        }
+        .onChange(of: interstitialViewModel.isAdShowing) { _, showing in
+            if showing { stopAudio() }
         }
         .onChange(of: currentQuestionIndex) { _, newValue in
             if let set = selectedSet {
@@ -716,16 +732,39 @@ struct ListeningView: View {
     }
     
     private func moveToNextQuestion() {
-        guard allGroupAnswered, let lastIndex = currentGroup?.questionIndices.last else { return }
-        if !storeManager.isPremium, selectedSet == 1 {
-            if lastIndex >= 2 { showPurchaseView = true; return }
+        guard !isFinishingStudy, allGroupAnswered,
+              let lastIndex = currentGroup?.questionIndices.last else { return }
+        stopAudio()
+        if !storeManager.isPremium, selectedSet == 1, lastIndex >= 2 {
+            showPurchaseView = true
+            return
         }
-        if lastIndex < totalQuestionsCount - 1 {
-            playbackRate = 1.0 // 🌟 다음 문제로 넘어갈 때 속도 초기화
-            stopAudio(); audioPlayer = nil; currentQuestionIndex = lastIndex + 1; groupAnswers = [:]; showAnswer = false; showScript = false; audioProgress = 0; isPlaying = false; setupAudio(); refreshSetProgress()
-        } else { showResultSheet = true }
+        guard lastIndex < totalQuestionsCount - 1 else {
+            showResultSheet = true
+            return
+        }
+        let advance = {
+            playbackRate = 1.0
+            audioPlayer = nil
+            currentQuestionIndex = lastIndex + 1
+            groupAnswers = [:]
+            showAnswer = false
+            showScript = false
+            audioProgress = 0
+            isPlaying = false
+            setupAudio()
+            refreshSetProgress()
+            isFinishingStudy = false
+        }
+        // Present only after the first answered group, away from the free-limit paywall.
+        if selectedSet == 1, currentGroupIndex == 0 {
+            isFinishingStudy = true
+            interstitialViewModel.showAtStudyBreak(onFinished: advance)
+        } else {
+            advance()
+        }
     }
-    
+
     private func resetToFirstQuestion() {
         playbackRate = 1.0 // 🌟 처음으로 돌아갈 때 속도 초기화
         stopAudio(); audioPlayer = nil; currentQuestionIndex = 0; progress = 0; score = 0; groupAnswers = [:]; showAnswer = false; audioProgress = 0; isPlaying = false; showScript = false; setupAudio()

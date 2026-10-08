@@ -1,24 +1,46 @@
-// AppAdManager.swift - 새로운 파일로 생성하세요
-import SwiftUI
+import Foundation
 
-// 앱 레벨 광고 상태 관리자 - 싱글톤 패턴
-class AppAdManager: ObservableObject {
+/// Shared spacing and presentation ownership for every full-screen ad format.
+@MainActor
+final class AppAdManager {
+    enum Format { case interstitial, appOpen }
+
     static let shared = AppAdManager()
-    
-    // 각 뷰별 광고 표시 상태 (앱이 실행되는 동안 유지)
-    @Published var hasShownReadingAd = false
-    @Published var hasShownListeningAd = false
-    @Published var hasShownWordListAd = false
-    @Published var hasShownGrammarAd = false
-    @Published var hasPracticeWordAd = false
-    private init() {}
-    
-    // 앱 종료시 상태 초기화 (앱 재시작시 자동으로 false로 초기화됨)
-    func resetOnAppTermination() {
-        hasShownReadingAd = false
-        hasShownListeningAd = false
-        hasShownWordListAd = false
-        hasShownGrammarAd = false
-        hasPracticeWordAd = false
+    private let now: () -> TimeInterval
+    private let minimumInterval: TimeInterval = 120
+    private var lastFinishedAt: TimeInterval?
+    private var activeFormat: Format?
+    private var purchaseScreens = 0
+
+    init(now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.now = now
+    }
+
+    var canPresentFullScreenAd: Bool {
+        guard activeFormat == nil, purchaseScreens == 0 else { return false }
+        guard let lastFinishedAt else { return true }
+        return now() - lastFinishedAt >= minimumInterval
+    }
+
+    func beginFullScreenAd(_ format: Format) -> Bool {
+        guard canPresentFullScreenAd else { return false }
+        activeFormat = format
+        return true
+    }
+
+    func endFullScreenAd(_ format: Format) {
+        guard activeFormat == format else { return }
+        activeFormat = nil
+        lastFinishedAt = now()
+    }
+
+    func purchaseScreenDidAppear() {
+        purchaseScreens += 1
+    }
+
+    func purchaseScreenDidDisappear() {
+        purchaseScreens = max(0, purchaseScreens - 1)
+        // Returning from a purchase screen should resume learning without an ad.
+        lastFinishedAt = now()
     }
 }

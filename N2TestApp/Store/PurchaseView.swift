@@ -110,7 +110,9 @@ struct PurchaseView: View {
         } message: {
             Text(alertMessage)
         }
+        .onDisappear { AppAdManager.shared.purchaseScreenDidDisappear() }
         .onAppear {
+            AppAdManager.shared.purchaseScreenDidAppear()
             if storeManager.activeSubscriptionType != .none {
                 selectedPlan = storeManager.activeSubscriptionType
             }

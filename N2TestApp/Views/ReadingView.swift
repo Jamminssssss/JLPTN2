@@ -61,6 +61,9 @@ struct ReadingView: View {
     @State private var showPurchaseView   = false
 
     @StateObject private var storeManager        = StoreKitManager.shared
+    @State private var answeredQuestionsThisSession = 0
+    @State private var isFinishingStudy = false
+
     @StateObject private var interstitialViewModel = InterstitialViewModel()
 
     @State private var selectedSet: Int? = nil
@@ -72,7 +75,7 @@ struct ReadingView: View {
     @State private var set4Progress: Double = 0
     @State private var set5Progress: Double = 0
 
-    @ObservedObject private var appAdManager = AppAdManager.shared
+    @ObservedObject private var adControlManager = AdControlManager.shared
 
     @Environment(\.dismiss)             private var dismiss
     @Environment(\.colorScheme)         private var colorScheme
@@ -120,6 +123,12 @@ struct ReadingView: View {
     }
 
     // MARK: - Body
+
+    private var shouldPreloadInterstitialAds: Bool {
+        selectedSet == 1 && scenePhase == .active
+            && adControlManager.shouldShowInterstitialAds
+            && !showResultSheet && !showPurchaseView && !showFullscreenImage
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -204,6 +213,7 @@ struct ReadingView: View {
             }
         }
         .ignoresSafeArea(.container, edges: [.leading, .trailing])
+        .disabled(isFinishingStudy)
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .tabBar)
         .fullScreenCover(isPresented: $showFullscreenImage) {
@@ -237,6 +247,10 @@ struct ReadingView: View {
             }
             refreshSetProgress()
             synthesizer.stopSpeaking(at: .immediate)
+        }
+        .task(id: shouldPreloadInterstitialAds) {
+            guard shouldPreloadInterstitialAds else { return }
+            await interstitialViewModel.loadAd()
         }
         .onChange(of: currentGroupIndex) { _, newValue in
             if let set = selectedSet {
@@ -852,6 +866,7 @@ struct ReadingView: View {
     private func selectAnswerInGroup(question: Question, questionIndex: Int, answer: String) {
         guard groupAnswers[question.id] == nil else { return }
         groupAnswers[question.id] = answer
+        answeredQuestionsThisSession += 1
         
         if answer == question.answer {
             score += 1
@@ -876,22 +891,58 @@ struct ReadingView: View {
     }
 
     private func moveToNextGroup() {
+        guard !isFinishingStudy else { return }
         if !storeManager.isPremium, selectedSet == 1 {
             if currentGroupIndex >= 2 {
-                showPurchaseView = true
+                finishStudy(showPurchase: true)
                 return
             }
         }
         
         if currentGroupIndex < questionGroups.count - 1 {
-            currentGroupIndex += 1; groupAnswers = [:]; groupShowExplanation = []
-            refreshSetProgress()
+            let advance = {
+                currentGroupIndex += 1
+                groupAnswers = [:]
+                groupShowExplanation = []
+                refreshSetProgress()
+            }
+            // Leave two free groups between this break and the purchase screen.
+            if selectedSet == 1, currentGroupIndex == 0, answeredQuestionsThisSession > 0 {
+                isFinishingStudy = true
+                synthesizer.stopSpeaking(at: .immediate)
+                isSpeaking = false
+                interstitialViewModel.showAtStudyBreak {
+                    advance()
+                    isFinishingStudy = false
+                }
+            } else {
+                advance()
+            }
         } else {
-            showResultSheet = true
+            finishStudy(showPurchase: false)
         }
     }
 
+    /// The last "Next/Complete" action ends this learning segment.
+    private func finishStudy(showPurchase: Bool) {
+        guard !isFinishingStudy else { return }
+        isFinishingStudy = true
+        synthesizer.stopSpeaking(at: .immediate)
+        isSpeaking = false
+        let openNextScreen = {
+            isFinishingStudy = false
+            if showPurchase {
+                showPurchaseView = true
+            } else {
+                showResultSheet = true
+            }
+        }
+        // Results and the free-limit paywall open directly, without another full-screen ad.
+        openNextScreen()
+    }
+
     private func loadQuestionsForSet(_ set: Int) {
+        answeredQuestionsThisSession = 0
         questions      = DataLoader.load(set: set)
         questionGroups = DataLoader.groupQuestions(questions)
         let saved = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group1_set\(set)")
@@ -930,6 +981,7 @@ struct ReadingView: View {
     }
 
     private func resetToFirstQuestion() {
+        answeredQuestionsThisSession = 0
         currentGroupIndex = 0; progress = 0; score = 0
         groupAnswers = [:]; groupShowExplanation = []; selectedAnswer = nil
         showAnswer = false; showExplanation = false

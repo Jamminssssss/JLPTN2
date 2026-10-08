@@ -99,6 +99,9 @@ class AppOpenAdManager: NSObject, FullScreenContentDelegate, ObservableObject {
             return
         }
         
+        guard AppAdManager.shared.canPresentFullScreenAd,
+              UIApplication.shared.applicationState == .active else { return }
+
         // 이미 광고가 표시 중이면 건너뜀
         guard !isShowingAd else {
             print("⏸️ 이미 광고가 표시 중")
@@ -113,7 +116,6 @@ class AppOpenAdManager: NSObject, FullScreenContentDelegate, ObservableObject {
 
         if let ad = appOpenAd {
             print("🎬 앱 오픈 광고 표시 시작")
-            isShowingAd = true
             
             // ⭐️ 수정: rootViewController 올바르게 가져오기
             guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -126,7 +128,11 @@ class AppOpenAdManager: NSObject, FullScreenContentDelegate, ObservableObject {
                 return
             }
             
-            // ⭐️ 타임아웃 설정: 10초 후에도 광고가 닫히지 않으면 강제로 상태 초기화
+            guard rootViewController.presentedViewController == nil,
+                  AppAdManager.shared.beginFullScreenAd(.appOpen) else { return }
+            isShowingAd = true
+            isAdShowing = true
+            // Watch only presentation startup; SDK presentation cancels this timer.
             setupAdTimeout()
             
             // 광고 표시
@@ -155,6 +161,7 @@ class AppOpenAdManager: NSObject, FullScreenContentDelegate, ObservableObject {
     
     // ⭐️ 새로 추가: 광고 상태 초기화
     private func resetAdState() {
+        AppAdManager.shared.endFullScreenAd(.appOpen)
         appOpenAd = nil
         isShowingAd = false
         isAdShowing = false
@@ -173,15 +180,11 @@ class AppOpenAdManager: NSObject, FullScreenContentDelegate, ObservableObject {
     func clearAdsAfterPurchase() {
         print("💳 광고제거 구매 완료 - 기존 광고 정리")
         
-        // 타임아웃 타이머 취소
+        // An SDK ad already on screen must retain its delegate and shared lock.
+        guard !isShowingAd, !isAdShowing else { return }
         timeoutWorkItem?.cancel()
         timeoutWorkItem = nil
-        
-        // 현재 표시중인 광고가 있다면 닫기 (앱오픈광고는 수동으로 닫을 수 없으므로 상태만 초기화)
-        if isShowingAd || isAdShowing {
-            print("⚠️ 광고가 현재 표시 중이지만 상태만 초기화")
-        }
-        
+
         appOpenAd = nil
         loadTime = nil
         isLoadingAd = false
@@ -192,11 +195,16 @@ class AppOpenAdManager: NSObject, FullScreenContentDelegate, ObservableObject {
 
     // MARK: - FullScreenContentDelegate methods
     func adWillPresentFullScreenContent(_ ad: FullScreenPresentingAd) {
+        guard appOpenAd === (ad as AnyObject) else { return }
+        timeoutWorkItem?.cancel()
+        timeoutWorkItem = nil
         print("🎬 앱 오픈 광고가 표시됩니다")
         isAdShowing = true
     }
 
     func adDidDismissFullScreenContent(_ ad: FullScreenPresentingAd) {
+        guard appOpenAd === (ad as AnyObject) else { return }
+        AppAdManager.shared.endFullScreenAd(.appOpen)
         print("✖️ 앱 오픈 광고가 닫혔습니다")
         
         // ⭐️ 타임아웃 타이머 취소
@@ -217,6 +225,8 @@ class AppOpenAdManager: NSObject, FullScreenContentDelegate, ObservableObject {
         _ ad: FullScreenPresentingAd,
         didFailToPresentFullScreenContentWithError error: Error
     ) {
+        guard appOpenAd === (ad as AnyObject) else { return }
+        AppAdManager.shared.endFullScreenAd(.appOpen)
         print("❌ 앱 오픈 광고 표시 실패: \(error.localizedDescription)")
         
         // ⭐️ 타임아웃 타이머 취소
