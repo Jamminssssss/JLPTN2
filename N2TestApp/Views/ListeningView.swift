@@ -230,6 +230,7 @@ struct ListeningView: View {
             resultSheet
         }
         .onAppear {
+            FirebaseTelemetry.screen("listening")
             isTabBarHidden = true
             if let set = selectedSet {
                 let saved = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group2_set\(set)")
@@ -262,6 +263,11 @@ struct ListeningView: View {
             }
             progress = Double(currentGroupIndex) / Double(max(questionGroups.count, 1))
             refreshSetProgress()
+        }
+        .onChange(of: showResultSheet) { _, isPresented in
+            if isPresented, let set = selectedSet, !audioQuestions.isEmpty {
+                FirebaseTelemetry.log("study_complete", parameters: ["section": "listening", "set_number": set])
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in
             if let set = selectedSet {
@@ -786,6 +792,9 @@ struct ListeningView: View {
         progress = Double(currentGroupIndex) / Double(max(questionGroups.count, 1))
         groupAnswers = [:]; showAnswer = false; showScript = false; score = 0
         audioProgress = 0; isPlaying = false
+        if !audioQuestions.isEmpty {
+            FirebaseTelemetry.log("study_start", parameters: ["section": "listening", "set_number": set])
+        }
         stopAudio(); setupAudio()
     }
 

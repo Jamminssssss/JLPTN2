@@ -19,6 +19,12 @@ class AdControlManager: ObservableObject {
             name: .purchaseStatusChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePurchaseStatusChanged),
+            name: .adPolicyChanged,
+            object: nil
+        )
     }
     
     deinit {
@@ -35,7 +41,7 @@ class AdControlManager: ObservableObject {
         let previousState = shouldShowAds
         
         // ✅ StoreKitManager의 상태를 직접 확인
-        let newState = StoreKitManager.shared.shouldShowAds
+        let newState = StoreKitManager.shared.shouldShowAds && AdRemoteConfig.shared.policy.adsEnabled
         
         shouldShowAds = newState
         
@@ -52,15 +58,15 @@ class AdControlManager: ObservableObject {
     
     // ✅ 편의 프로퍼티들
     var shouldShowBannerAds: Bool {
-        shouldShowAds
+        shouldShowAds && AdRemoteConfig.shared.policy.bannerAdsEnabled
     }
     
     var shouldShowInterstitialAds: Bool {
-        shouldShowAds
+        shouldShowAds && AdRemoteConfig.shared.policy.interstitialAdsEnabled
     }
     
     var shouldShowAppOpenAds: Bool {
-        shouldShowAds
+        shouldShowAds && AdRemoteConfig.shared.policy.appOpenAdsEnabled
     }
     
     // ✅ 수동 새로고침 메서드

@@ -113,6 +113,8 @@ struct PurchaseView: View {
         .onDisappear { AppAdManager.shared.purchaseScreenDidDisappear() }
         .onAppear {
             AppAdManager.shared.purchaseScreenDidAppear()
+            FirebaseTelemetry.screen("subscription")
+            FirebaseTelemetry.log("subscription_screen_view")
             if storeManager.activeSubscriptionType != .none {
                 selectedPlan = storeManager.activeSubscriptionType
             }

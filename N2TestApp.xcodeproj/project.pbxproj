@@ -8,6 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		866330482E601A3B00A13457 /* GoogleMobileAds in Frameworks */ = {isa = PBXBuildFile; productRef = 866330472E601A3B00A13457 /* GoogleMobileAds */; };
+		F13EBA5E0000000000000001 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = F13EBA5E0000000000000011 /* FirebaseCore */; };
+		F13EBA5E0000000000000002 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = F13EBA5E0000000000000012 /* FirebaseAnalytics */; };
+		F13EBA5E0000000000000003 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = F13EBA5E0000000000000013 /* FirebaseCrashlytics */; };
+		F13EBA5E0000000000000004 /* FirebaseRemoteConfig in Frameworks */ = {isa = PBXBuildFile; productRef = F13EBA5E0000000000000014 /* FirebaseRemoteConfig */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -90,6 +94,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				866330482E601A3B00A13457 /* GoogleMobileAds in Frameworks */,
+				F13EBA5E0000000000000001 /* FirebaseCore in Frameworks */,
+				F13EBA5E0000000000000002 /* FirebaseAnalytics in Frameworks */,
+				F13EBA5E0000000000000003 /* FirebaseCrashlytics in Frameworks */,
+				F13EBA5E0000000000000004 /* FirebaseRemoteConfig in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -122,6 +130,7 @@
 				86632EC32E5EC01D00A13457 /* Sources */,
 				86632EC42E5EC01D00A13457 /* Frameworks */,
 				86632EC52E5EC01D00A13457 /* Resources */,
+				F13EBA5E0000000000000020 /* Upload Crashlytics Symbols */,
 			);
 			buildRules = (
 			);
@@ -133,6 +142,10 @@
 			name = N2TestApp;
 			packageProductDependencies = (
 				866330472E601A3B00A13457 /* GoogleMobileAds */,
+				F13EBA5E0000000000000011 /* FirebaseCore */,
+				F13EBA5E0000000000000012 /* FirebaseAnalytics */,
+				F13EBA5E0000000000000013 /* FirebaseCrashlytics */,
+				F13EBA5E0000000000000014 /* FirebaseRemoteConfig */,
 			);
 			productName = N2TestApp;
 			productReference = 86632EC72E5EC01D00A13457 /* N2TestApp.app */;
@@ -181,6 +194,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				866330462E601A3A00A13457 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */,
+				F13EBA5E0000000000000010 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 86632EC82E5EC01D00A13457 /* Products */;
@@ -201,6 +215,32 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F13EBA5E0000000000000020 /* Upload Crashlytics Symbols */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"$(SRCROOT)/scripts/firebase/Crashlytics-$(CONFIGURATION).xcfilelist",
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			name = "Upload Crashlytics Symbols";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  exit 0\nfi\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		86632EC32E5EC01D00A13457 /* Sources */ = {
@@ -248,7 +288,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = DUBPMF36TD;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -367,7 +407,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3.7;
+				MARKETING_VERSION = 2.3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -410,7 +450,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3.7;
+				MARKETING_VERSION = 2.3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.N2TestApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -455,6 +495,14 @@
 				minimumVersion = 12.9.0;
 			};
 		};
+		F13EBA5E0000000000000010 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 13.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -462,6 +510,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 866330462E601A3A00A13457 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */;
 			productName = GoogleMobileAds;
+		};
+		F13EBA5E0000000000000011 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F13EBA5E0000000000000010 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		F13EBA5E0000000000000012 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F13EBA5E0000000000000010 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		F13EBA5E0000000000000013 /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F13EBA5E0000000000000010 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+		F13EBA5E0000000000000014 /* FirebaseRemoteConfig */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F13EBA5E0000000000000010 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseRemoteConfig;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

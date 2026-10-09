@@ -67,6 +67,7 @@ class StoreKitManager: ObservableObject {
             print("📦 구독 상품 \(products.count)개 로드 완료")
         } catch {
             errorMessage = NSLocalizedString("purchase.products.unavailable", comment: "")
+            FirebaseTelemetry.record(error, operation: "load_store_products")
             print("❌ 제품 로드 실패: \(error)")
         }
     }
@@ -93,18 +94,31 @@ class StoreKitManager: ObservableObject {
         guard !isLoading else { throw StoreError.purchaseNotAllowed }
         isLoading = true
         defer { isLoading = false }
-        let result = try await product.purchase()
-        switch result {
-        case .success(let verification):
-            let transaction = try checkVerified(verification)
-            await transaction.finish()
-            await updateCustomerProductStatus()
-            await updatePastSubscriptionHistory()
-            print("✅ 구독 구매 성공: \(product.id)")
-            return .success(transaction)
-        case .userCancelled: return .cancelled
-        case .pending:       return .pending
-        @unknown default:    throw StoreError.unknown
+        let plan = product.id == monthlySubscriptionID ? "monthly" : "yearly"
+        FirebaseTelemetry.log("subscription_purchase_start", parameters: ["plan": plan])
+        do {
+            let result = try await product.purchase()
+            switch result {
+            case .success(let verification):
+                let transaction = try checkVerified(verification)
+                await transaction.finish()
+                await updateCustomerProductStatus()
+                await updatePastSubscriptionHistory()
+                FirebaseTelemetry.log("subscription_purchase_success", parameters: ["plan": plan])
+                print("✅ 구독 구매 성공: \(product.id)")
+                return .success(transaction)
+            case .userCancelled:
+                FirebaseTelemetry.log("subscription_purchase_cancelled", parameters: ["plan": plan])
+                return .cancelled
+            case .pending:
+                FirebaseTelemetry.log("subscription_purchase_pending", parameters: ["plan": plan])
+                return .pending
+            @unknown default:    throw StoreError.unknown
+            }
+        } catch {
+            FirebaseTelemetry.log("subscription_purchase_failed", parameters: ["plan": plan])
+            FirebaseTelemetry.record(error, operation: "purchase_subscription")
+            throw error
         }
     }
 

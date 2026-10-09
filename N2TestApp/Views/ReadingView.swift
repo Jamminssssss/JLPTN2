@@ -230,6 +230,7 @@ struct ReadingView: View {
         }
         .fullScreenCover(isPresented: $showResultSheet) { resultSheet }
         .onAppear {
+            FirebaseTelemetry.screen("reading")
             isTabBarHidden = true
             if let set = selectedSet {
                 let saved = DatabaseManager.shared.loadProgress(level: level, quizGroup: "Group1_set\(set)")
@@ -259,6 +260,11 @@ struct ReadingView: View {
             progress = Double(newValue) / Double(max(totalGroupCount, 1))
             refreshSetProgress()
         }
+        .onChange(of: showResultSheet) { _, isPresented in
+            if isPresented, let set = selectedSet, !questions.isEmpty {
+                FirebaseTelemetry.log("study_complete", parameters: ["section": "reading", "set_number": set])
+            }
+        }
         // CloudKit 복원 시 갱신
         .onReceive(NotificationCenter.default.publisher(for: .jlptCloudRestoreCompleted)) { _ in
             if let set = selectedSet {
@@ -284,7 +290,10 @@ struct ReadingView: View {
                             DatabaseManager.shared.saveProgress(level: level, quizGroup: "Group1_set\(set)", index: currentGroupIndex)
                         }
                         selectedSet = nil; currentGroupIndex = 0
-                        groupAnswers = [:]; groupShowExplanation = []; selectedAnswer = nil
+                        if !questions.isEmpty {
+            FirebaseTelemetry.log("study_start", parameters: ["section": "reading", "set_number": set])
+        }
+        groupAnswers = [:]; groupShowExplanation = []; selectedAnswer = nil
                         showAnswer = false; showExplanation = false; progress = 0
                     } label: { Label("회차 선택", systemImage: "list.number") }
                     Button { dismiss() } label: {

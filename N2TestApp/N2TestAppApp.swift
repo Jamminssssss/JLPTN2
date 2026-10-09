@@ -10,6 +10,8 @@ import GoogleMobileAds
 
 @main
 struct N2TestAppApp: App {
+    @UIApplicationDelegateAdaptor(FirebaseAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     
     // ⭐️ 앱 시작 시 초기화
     init() {
@@ -22,12 +24,18 @@ struct N2TestAppApp: App {
         WindowGroup {
             ContentView()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await AdRemoteConfig.shared.refresh() }
+            }
+        }
     }
     
     // MARK: - App Configuration
     
     private func configureApp() {
         print("🔧 configureApp 시작")
+        FirebaseTelemetry.configure()
         validateAndInitializeAds()
         print("✅ configureApp 완료")
     }
